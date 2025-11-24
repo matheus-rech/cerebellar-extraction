@@ -11,6 +11,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-performance-compat.js"></script>
 
   <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -913,6 +914,7 @@
     const auth = firebase.auth();
     const db = firebase.firestore();
     const analytics = firebase.analytics();
+    const perf = firebase.performance();
 
     const appId = "cerebellar-extraction";
     const apiKey = "AIzaSyABpwQcfzPOAswAV6Sa-CtBULJRULiD-uE"; // Gemini API key
@@ -1065,21 +1067,33 @@
       };
 
       // --- FIREBASE AUTH ---
+      const signInWithGoogle = async () => {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        try {
+          await auth.signInWithPopup(provider);
+          analytics.logEvent('login', { method: 'google' });
+          showToast("Signed in successfully!");
+        } catch (error) {
+          console.error("Auth Error:", error);
+          showToast("Sign in failed", "error");
+        }
+      };
+
+      const signOut = () => {
+        auth.signOut();
+        showToast("Signed out");
+      };
+
       useEffect(() => {
-        if (!auth) return; // Guard if firebase failed
-        const initAuth = async () => {
-          try {
-            // Since we are using a custom project (cerebellar-extraction),
-            // we cannot use the environment's __initial_auth_token.
-            // We default to anonymous sign-in.
-            await auth.signInAnonymously();
-          } catch (error) {
-            console.error("Auth Error:", error);
-            showToast("Authentication failed. Check Console.", "error");
+        if (!auth) return;
+        const unsubscribe = auth.onAuthStateChanged(user => {
+          setUser(user);
+          if (!user) {
+            // Optional: Auto-signin anonymously if you want to allow guest access
+            // auth.signInAnonymously().catch(console.error);
           }
-        };
-        initAuth();
-        return auth.onAuthStateChanged(setUser);
+        });
+        return unsubscribe;
       }, []);
 
       // --- FIREBASE SYNC ---
@@ -1153,6 +1167,7 @@
             } catch (err) { console.error("Text extraction warning", err); }
 
             showToast("PDF loaded successfully");
+            analytics.logEvent('pdf_uploaded', { file_name: file.name, num_pages: pdf.numPages });
           } catch (error) {
             showToast("Error loading PDF", 'error');
             console.error(error);
@@ -1231,6 +1246,7 @@
 
           setAiFilledFields(newAiFields);
           showToast("✨ Data extracted from abstract!");
+          analytics.logEvent('ai_extraction_completed');
         } catch (e) {
           console.error(e);
           showToast("AI Extraction failed", "error");
@@ -1366,11 +1382,32 @@
         a.href = URL.createObjectURL(blob);
         a.download = `${extractedData.study_id || 'data'}.json`;
         a.click();
+        analytics.logEvent('data_exported', { study_id: extractedData.study_id });
       };
+
+      if (!user) {
+        return (
+          <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', background: '#eef2f5' }}>
+            <div style={{ padding: 40, background: 'white', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+              <h2 style={{ marginBottom: 20, color: '#2c3e50' }}>Cerebellar Extraction Tool</h2>
+              <p style={{ marginBottom: 30, color: '#7f8c8d' }}>Please sign in to access your extractions.</p>
+              <button onClick={signInWithGoogle} style={{ padding: '12px 24px', background: '#4285F4', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>
+                Sign in with Google
+              </button>
+            </div>
+          </div>
+        );
+      }
 
       return (
         <div className="app">
           {isLoading && <div className="loading-overlay"><div className="spinner"></div></div>}
+
+          <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000 }}>
+            <button onClick={signOut} style={{ padding: '6px 12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+              Sign Out
+            </button>
+          </div>
 
           <PDFPanel
             pdfFile={pdfFile}
