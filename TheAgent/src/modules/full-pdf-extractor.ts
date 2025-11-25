@@ -10,11 +10,10 @@ import { BaseModule } from './base.js';
 import type { ExtractionOptions, FullPdfResult, MethodsData, ResultsData, DiscussionData } from '../types/index.js';
 import pdf from 'pdf-parse';
 import { readFileSync } from 'fs';
-import Anthropic from '@anthropic-ai/sdk';
 import {
-  extractMethodsSection,
-  extractResultsSection,
-  extractCerebellumStudyData
+  extractMethodsSectionWithAgent,
+  extractResultsSectionWithAgent,
+  extractCerebellumStudyData as _extractCerebellumStudyData
 } from '../utils/structured-extraction.js';
 
 interface FullPdfInput {
@@ -118,13 +117,11 @@ export class FullPdfExtractor extends BaseModule<FullPdfInput, FullPdfResult> {
     if (!methodsText) return undefined;
 
     try {
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
-      const extracted = await extractMethodsSection(client, methodsText, {
+      const extracted = await extractMethodsSectionWithAgent(methodsText, {
         verbose: options?.verbose
       });
 
-      this.log('Methods section extracted via structured tool pattern', options?.verbose);
+      this.log('Methods section extracted via structured tool pattern (Agent SDK)', options?.verbose);
 
       return {
         study_type: extracted.study_design || 'Not reported',
@@ -160,13 +157,11 @@ export class FullPdfExtractor extends BaseModule<FullPdfInput, FullPdfResult> {
     if (!resultsText) return undefined;
 
     try {
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
-      const extracted = await extractResultsSection(client, resultsText, {
+      const extracted = await extractResultsSectionWithAgent(resultsText, {
         verbose: options?.verbose
       });
 
-      this.log('Results section extracted via structured tool pattern', options?.verbose);
+      this.log('Results section extracted via structured tool pattern (Agent SDK)', options?.verbose);
 
       // Map structured tool output to ResultsData interface
       const primaryOutcome = extracted.primary_outcome;
@@ -205,7 +200,7 @@ export class FullPdfExtractor extends BaseModule<FullPdfInput, FullPdfResult> {
    * Note: Currently uses simple text extraction. Could be enhanced with
    * a dedicated discussion extraction tool if needed for your use case.
    */
-  private async extractDiscussion(discussionText?: string, options?: ExtractionOptions): Promise<DiscussionData | undefined> {
+  private async extractDiscussion(discussionText?: string, _options?: ExtractionOptions): Promise<DiscussionData | undefined> {
     if (!discussionText) return undefined;
 
     // Basic heuristic extraction (could be enhanced with structured tool)

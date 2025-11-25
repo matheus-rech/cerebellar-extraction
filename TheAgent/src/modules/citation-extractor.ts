@@ -20,8 +20,7 @@
 
 import { BaseModule } from './base.js';
 import type { ExtractionOptions } from '../types/index.js';
-import Anthropic from '@anthropic-ai/sdk';
-import { extractCitationsStructured } from '../utils/structured-extraction.js';
+import { extractCitationsStructuredWithAgent } from '../utils/structured-extraction.js';
 
 /**
  * Citation data structure
@@ -211,17 +210,15 @@ export class CitationExtractor extends BaseModule<CitationInput, CitationResult>
    *
    * Now uses structured extraction with tool use pattern for guaranteed schema compliance.
    * Tool-based extraction provides higher accuracy than prompt-based JSON.
+   * Uses Agent SDK for extraction without requiring direct Anthropic API client.
    */
   private async parseCitations(
     referencesText: string,
     options?: ExtractionOptions
   ): Promise<Citation[]> {
     try {
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
-      // Use structured extraction tool
-      const extractedCitations = await extractCitationsStructured(
-        client,
+      // Use Agent SDK structured extraction tool
+      const extractedCitations = await extractCitationsStructuredWithAgent(
         referencesText,
         { verbose: options?.verbose }
       );

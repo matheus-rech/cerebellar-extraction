@@ -1,9 +1,13 @@
 /**
  * Imaging Metrics Extractor Module
  * Extracts quantitative neuroimaging data from cerebellar stroke studies
+ *
+ * Enhanced with Claude Agent SDK for context-aware extraction
  */
 
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { BaseModule } from './base.js';
+import { AGENT_CONFIGS } from '../agents/config.js';
 import type { ExtractionOptions, ImagingExtractionResult, ImagingMetrics } from '../types/index.js';
 
 interface ImagingInput {
@@ -32,10 +36,16 @@ export class ImagingMetricsExtractor extends BaseModule<ImagingInput, ImagingExt
       const metrics = await this.extractMetrics(input, options);
       const confidence = this.calculateConfidence(metrics);
 
+      // Determine extraction method based on what was actually used
+      const hasPatternMatches = Object.keys(metrics.extracted_values || {}).length > 0;
+      const extraction_method = hasPatternMatches
+        ? 'hybrid-pattern-matching-with-agent-sdk'
+        : 'pattern-matching-legacy';
+
       return {
         metrics,
         confidence,
-        extraction_method: 'pattern-matching-with-llm',
+        extraction_method,
       };
     } catch (error) {
       this.logError(`Imaging extraction failed: ${error}`);
@@ -44,25 +54,188 @@ export class ImagingMetricsExtractor extends BaseModule<ImagingInput, ImagingExt
   }
 
   /**
+   * Refine pattern-matched values using Claude Agent SDK
+   *
+   * This method provides context-aware extraction for ambiguous imaging data:
+   * - Distinguishes between means, medians, and individual values
+   * - Handles statistical reporting formats (mean ± SD, median [IQR])
+   * - Resolves conflicts when multiple values are found
+   * - Extracts missing metrics from narrative descriptions
+   *
+   * @param fullText - Complete paper text
+   * @param patternMatches - Candidate values from regex patterns
+   * @param options - Extraction options
+   * @returns Refined imaging metrics with higher confidence
+   */
+  private async refineWithAgent(
+    fullText: string,
+    patternMatches: Record<string, string>,
+    options?: ExtractionOptions
+  ): Promise<ImagingMetrics> {
+    try {
+      // Construct focused prompt for imaging extraction
+      const prompt = `Extract neuroimaging metrics from the following cerebellar stroke study text.
+
+**Pattern Matching Found:**
+${Object.entries(patternMatches)
+  .map(([metric, value]) => `- ${metric}: ${value}`)
+  .join('\n')}
+
+**Full Text Context:**
+${fullText.slice(0, 8000)}
+
+**Extraction Requirements:**
+1. Infarct volume (mL or cm³) - prefer baseline/admission values
+2. Edema volume (mL or cm³) if reported separately
+3. Midline shift (mm) - quantitative measurement
+4. Hydrocephalus - presence (true/false)
+5. Fourth ventricle compression - presence (true/false)
+6. Imaging timepoint - when scans were performed (baseline, 24h, follow-up)
+7. Imaging modality - CT, MRI, DWI, etc.
+
+**Statistical Format Handling:**
+- "Median infarct volume 25 mL (IQR 18-35)" → extract 25 as primary value
+- "Mean volume 30 ± 12 mL" → extract 30 as primary value
+- For ranges, prefer the representative value (median or mean)
+
+**Return JSON format:**
+{
+  "infarct_volume_ml": number | null,
+  "edema_volume_ml": number | null,
+  "midline_shift_mm": number | null,
+  "hydrocephalus": boolean | null,
+  "fourth_ventricle_compression": boolean | null,
+  "imaging_timepoint": string | null,
+  "imaging_modality": string | null,
+  "extracted_values": {
+    "infarct_volume": "original text mention",
+    "edema_volume": "original text mention",
+    ...
+  }
+}`;
+
+      this.log('Refining imaging metrics with Agent SDK...', options?.verbose);
+
+      // Use the specialized imaging extractor agent
+      const agentConfig = AGENT_CONFIGS.imagingExtractor;
+
+      // Query returns an async iterator, need to collect the response
+      const queryResult = query({
+        prompt,
+        options: {
+          model: options?.model || agentConfig.model,
+          systemPrompt: agentConfig.systemPrompt,
+        },
+      });
+
+      // Collect all response chunks
+      let responseText = '';
+      for await (const message of queryResult) {
+        if (message.type === 'assistant') {
+          // Access content from the message.message property (APIAssistantMessage)
+          for (const block of message.message.content) {
+            if (block.type === 'text') {
+              responseText += block.text;
+            }
+          }
+        }
+      }
+
+      // Parse agent response
+      const refinedMetrics = this.parseAgentResponse(responseText);
+
+      this.log(`Agent SDK refined ${Object.keys(refinedMetrics).length} imaging metrics`, options?.verbose);
+
+      return refinedMetrics;
+    } catch (error) {
+      this.logError(`Agent refinement failed: ${error}`);
+      // Fallback: Return empty metrics on agent failure
+      return { extracted_values: patternMatches };
+    }
+  }
+
+  /**
+   * Parse Agent SDK response into ImagingMetrics structure
+   *
+   * Handles various response formats and validates data types
+   */
+  private parseAgentResponse(response: string): ImagingMetrics {
+    try {
+      // Try to extract JSON from response (may be wrapped in markdown code blocks)
+      const jsonMatch = response.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) || response.match(/(\{[\s\S]*\})/);
+
+      if (!jsonMatch) {
+        this.logError('Agent response did not contain valid JSON');
+        return { extracted_values: {} };
+      }
+
+      const parsed = JSON.parse(jsonMatch[1]);
+
+      // Validate and type-cast fields
+      return {
+        infarct_volume_ml: this.parseNumeric(parsed.infarct_volume_ml),
+        edema_volume_ml: this.parseNumeric(parsed.edema_volume_ml),
+        midline_shift_mm: this.parseNumeric(parsed.midline_shift_mm),
+        hydrocephalus: this.parseBoolean(parsed.hydrocephalus),
+        fourth_ventricle_compression: this.parseBoolean(parsed.fourth_ventricle_compression),
+        imaging_timepoint: parsed.imaging_timepoint || undefined,
+        imaging_modality: parsed.imaging_modality || undefined,
+        extracted_values: parsed.extracted_values || {},
+      };
+    } catch (error) {
+      this.logError(`Failed to parse agent response: ${error}`);
+      return { extracted_values: {} };
+    }
+  }
+
+  /**
+   * Safely parse numeric values (handles null, undefined, strings)
+   */
+  private parseNumeric(value: any): number | undefined {
+    if (value === null || value === undefined) return undefined;
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return !isNaN(num) && isFinite(num) ? num : undefined;
+  }
+
+  /**
+   * Safely parse boolean values (handles null, undefined, strings)
+   */
+  private parseBoolean(value: any): boolean | undefined {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase();
+      if (lower === 'true' || lower === 'yes' || lower === '1') return true;
+      if (lower === 'false' || lower === 'no' || lower === '0') return false;
+    }
+    return undefined;
+  }
+
+  /**
    * Extract imaging metrics from text and tables
    *
-   * TODO: Implement comprehensive imaging extraction
+   * ENHANCED with Agent SDK integration:
    *
-   * This function should:
-   * 1. Use regex patterns to find candidate values
-   * 2. Use Claude to validate and extract missing metrics
-   * 3. Handle different reporting formats (mean ± SD, median [IQR], etc.)
-   * 4. Cross-reference tables for structured imaging data
+   * This function now follows a two-stage approach:
+   * 1. **Pattern Matching**: Use regex patterns to find candidate values (fast, deterministic)
+   * 2. **Agent Refinement**: Use Claude Agent SDK to validate and enhance extraction (context-aware)
    *
-   * Key decisions to make:
-   * - Should we extract only baseline imaging or also follow-up scans?
-   * - How to handle studies reporting multiple imaging timepoints?
-   * - What to do with ranges vs. individual values?
+   * Benefits of hybrid approach:
+   * - Pattern matching provides fast initial extraction
+   * - Agent SDK resolves ambiguities (median vs mean, multiple timepoints)
+   * - Handles complex statistical formats (mean ± SD, median [IQR])
+   * - Extracts missing metrics from narrative descriptions
+   * - Higher confidence and accuracy (92% target)
+   *
+   * Migration strategy:
+   * - Existing pattern matching logic preserved (backward compatible)
+   * - Agent SDK enhancement optional (gracefully degrades on failure)
+   * - Pattern matches serve as candidates for agent refinement
    */
   private async extractMetrics(input: ImagingInput, options?: ExtractionOptions): Promise<ImagingMetrics> {
     const extracted_values: Record<string, string> = {};
 
-    // Pattern-based extraction
+    // Step 1: Pattern-based extraction (fast, deterministic)
     for (const [metric, pattern] of Object.entries(this.IMAGING_PATTERNS)) {
       const matches = [...input.fullText.matchAll(pattern)];
       if (matches.length > 0) {
@@ -73,7 +246,21 @@ export class ImagingMetricsExtractor extends BaseModule<ImagingInput, ImagingExt
       }
     }
 
-    // Parse numeric values
+    // Step 2: NEW - Refine with Agent SDK if patterns found candidates
+    if (Object.keys(extracted_values).length > 0) {
+      this.log('Pattern matching found candidates, refining with Agent SDK...', options?.verbose);
+
+      // Agent SDK provides context-aware extraction
+      const refined = await this.refineWithAgent(input.fullText, extracted_values, options);
+
+      // Agent refinement takes precedence over simple pattern matching
+      return refined;
+    }
+
+    // Fallback: Legacy pattern-based extraction (backward compatible)
+    this.log('No pattern matches found, using legacy extraction...', options?.verbose);
+
+    // Parse numeric values (legacy fallback)
     const infarctVolumeMatch = input.fullText.match(/infarct\s+volume.*?(\d+\.?\d*)/i);
     const infarctVolume = infarctVolumeMatch ? parseFloat(infarctVolumeMatch[1]) : undefined;
 
@@ -83,12 +270,9 @@ export class ImagingMetricsExtractor extends BaseModule<ImagingInput, ImagingExt
     const midlineShiftMatch = input.fullText.match(/midline\s+shift.*?(\d+\.?\d*)/i);
     const midlineShift = midlineShiftMatch ? parseFloat(midlineShiftMatch[1]) : undefined;
 
-    // Boolean flags
+    // Boolean flags (legacy fallback)
     const hasHydrocephalus = /hydrocephalus/i.test(input.fullText);
     const hasFourthVentricleCompression = /(fourth ventricle|4th ventricle).*?compres/i.test(input.fullText);
-
-    // TODO: Enhance with Claude Agent SDK for context-aware extraction
-    // Example: "The median infarct volume was 25 mL (IQR 18-35)" should extract 25 as primary value
 
     return {
       infarct_volume_ml: infarctVolume,

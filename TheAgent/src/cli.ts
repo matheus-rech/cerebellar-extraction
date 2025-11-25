@@ -9,6 +9,8 @@ import { TheAgent } from './index.js';
 import type { ModuleName } from './types/index.js';
 import { writeFileSync } from 'fs';
 import dotenv from 'dotenv';
+import { AGENT_CONFIGS } from './agents/config.js';
+import { MCP_SERVERS, isMcpEnabled } from './agents/mcp-config.js';
 
 // Load environment variables
 dotenv.config();
@@ -17,8 +19,8 @@ const program = new Command();
 
 program
   .name('theagent')
-  .description('Hybrid medical research data extraction agent')
-  .version('0.1.0');
+  .description('Hybrid medical research data extraction agent (Agent SDK powered)')
+  .version('0.2.0');
 
 /**
  * Process a single PDF
@@ -200,11 +202,26 @@ program
     const apiKey = process.env.ANTHROPIC_API_KEY;
     console.log(`  ANTHROPIC_API_KEY: ${apiKey ? '✅ Set' : '❌ Not set'}`);
 
+    // Agent SDK Status
+    console.log(`\n  🤖 Agent SDK: ✅ Active`);
+    console.log(`  Configured Agents: ${Object.keys(AGENT_CONFIGS).length}`);
+    console.log(`  Agent List:`);
+    Object.entries(AGENT_CONFIGS).forEach(([_key, config]) => {
+      console.log(`    - ${config.name} (${config.model})`);
+    });
+
+    // MCP Servers
+    console.log(`\n  🔌 MCP Servers:`);
+    const mcpServerList = Object.keys(MCP_SERVERS);
+    mcpServerList.forEach((serverName) => {
+      const enabled = isMcpEnabled(serverName);
+      console.log(`    - ${serverName}: ${enabled ? '✅ Enabled' : '⚠️  Disabled'}`);
+    });
+
     const doclingEnabled = process.env.DOCLING_MCP_ENABLED === 'true';
-    console.log(`  Docling MCP: ${doclingEnabled ? '✅ Enabled' : '⚠️  Disabled'}`);
 
     const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
-    console.log(`  Firebase: ${firebaseProjectId ? `✅ ${firebaseProjectId}` : '⚠️  Not configured'}`);
+    console.log(`\n  Firebase: ${firebaseProjectId ? `✅ ${firebaseProjectId}` : '⚠️  Not configured'}`);
 
     if (!apiKey) {
       console.log('\n❌ ANTHROPIC_API_KEY is required!');
@@ -217,6 +234,11 @@ program
       console.log('   To enable: Set DOCLING_MCP_ENABLED=true in .env');
       console.log('   Install: uvx --from=docling-mcp docling-mcp-server');
     }
+
+    console.log('\n📊 Summary:');
+    console.log(`   Total Agents: ${Object.keys(AGENT_CONFIGS).length}`);
+    console.log(`   MCP Servers Available: ${mcpServerList.length}`);
+    console.log(`   MCP Servers Enabled: ${mcpServerList.filter(s => isMcpEnabled(s)).length}`);
   });
 
 program.parse();

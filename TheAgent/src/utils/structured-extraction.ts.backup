@@ -15,7 +15,6 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
-import { query, type Options as QueryOptions, type SDKMessage, type SDKAssistantMessage, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { extractCitationSources, displayCitationSources } from './citation-display.js';
 
 /**
@@ -300,7 +299,7 @@ export const CITATION_EXTRACTION_TOOL: Tool = {
 };
 
 /**
- * Structured Extraction Options (Legacy - Direct Anthropic API)
+ * Structured Extraction Options
  */
 export interface StructuredExtractionOptions {
   /** Anthropic API client instance */
@@ -319,28 +318,6 @@ export interface StructuredExtractionOptions {
   enableCitations?: boolean;
   /** Verbose logging */
   verbose?: boolean;
-}
-
-/**
- * Agent SDK Extraction Options (New - Agent SDK)
- */
-export interface AgentExtractionOptions {
-  /** Claude model to use */
-  model?: string;
-  /** Maximum tokens for response */
-  maxTokens?: number;
-  /** Document content (PDF as base64 or text) */
-  documentContent: string | { type: 'base64'; media_type: 'application/pdf'; data: string };
-  /** Extraction prompt/query */
-  prompt: string;
-  /** Tool definition to use for extraction */
-  tool: Tool;
-  /** Enable native citations */
-  enableCitations?: boolean;
-  /** Verbose logging */
-  verbose?: boolean;
-  /** Additional Agent SDK options */
-  agentOptions?: Partial<QueryOptions>;
 }
 
 /**
@@ -460,158 +437,6 @@ export async function performStructuredExtraction<T = any>(
 }
 
 /**
- * Perform structured extraction using Agent SDK query pattern
- *
- * @param options - Extraction configuration using Agent SDK
- * @returns Extracted structured data from tool input
- *
- * @example
- * ```typescript
- * const result = await performStructuredExtractionWithAgent({
- *   documentContent: pdfBase64,
- *   prompt: 'Extract all study data from this cerebellar stroke research paper',
- *   tool: CEREBELLAR_STUDY_EXTRACTION_TOOL,
- *   enableCitations: true
- * });
- * ```
- */
-export async function performStructuredExtractionWithAgent<T = any>(
-  options: AgentExtractionOptions
-): Promise<{
-  data: T;
-  citations?: any[];
-  rawMessages: SDKMessage[];
-  /** REQUIRED: Display these sources to show where data came from */
-  displaySources?: () => void;
-}> {
-  const {
-    model = 'claude-sonnet-4-5-20250929',
-    documentContent,
-    prompt,
-    tool,
-    enableCitations = false,
-    verbose = false,
-    agentOptions = {}
-  } = options;
-
-  if (verbose) {
-    console.log(`[AgentExtraction] Using tool: ${tool.name}`);
-    console.log(`[AgentExtraction] Model: ${model}`);
-  }
-
-  // Build message content blocks
-  const messageContent: any[] = [];
-
-  // Add document if provided as PDF
-  if (typeof documentContent === 'object') {
-    messageContent.push({
-      type: 'document',
-      source: documentContent,
-      citations: enableCitations ? { enabled: true } : undefined
-    });
-  }
-
-  // Add text prompt
-  messageContent.push({
-    type: 'text',
-    text: typeof documentContent === 'string'
-      ? `${documentContent}\n\n${prompt}`
-      : prompt
-  });
-
-  // Prepare system prompt with tool instruction
-  const systemPrompt = `You are a precise data extraction assistant. Use the ${tool.name} tool to extract structured data according to its schema. Extract only explicitly stated information and use null for missing fields.`;
-
-  // Create query options
-  const queryOpts: QueryOptions = {
-    model,
-    maxTurns: 1, // Single turn extraction
-    systemPrompt,
-    ...agentOptions
-  };
-
-  if (verbose) {
-    console.log(`[AgentExtraction] Starting Agent SDK query...`);
-  }
-
-  // Execute query with Agent SDK
-  const queryGen = query({
-    prompt: JSON.stringify({
-      role: 'user',
-      content: messageContent,
-      tools: [tool],
-      tool_choice: { type: 'tool', name: tool.name }
-    }),
-    options: queryOpts
-  });
-
-  // Collect all messages
-  const allMessages: SDKMessage[] = [];
-  let extractedData: any = null;
-  const citations: any[] = [];
-  let lastAssistantMessage: any = null;
-
-  for await (const message of queryGen) {
-    allMessages.push(message);
-
-    if (verbose) {
-      console.log(`[AgentExtraction] Received message type: ${message.type}`);
-    }
-
-    // Look for assistant message with tool use
-    if (message.type === 'assistant') {
-      lastAssistantMessage = (message as SDKAssistantMessage).message;
-
-      // Extract tool use from message content
-      for (const block of lastAssistantMessage.content || []) {
-        if (block.type === 'tool_use' && block.name === tool.name) {
-          extractedData = block.input;
-          if (verbose) {
-            console.log(`[AgentExtraction] Extracted data from tool_use block`);
-          }
-        } else if ((block as any).type === 'citations') {
-          citations.push(...(block as any).citations);
-          if (verbose) {
-            console.log(`[AgentExtraction] Collected ${(block as any).citations.length} citations`);
-          }
-        }
-      }
-    }
-
-    // Look for result message
-    if (message.type === 'result') {
-      const resultMsg = message as SDKResultMessage;
-      if (resultMsg.subtype === 'success' && resultMsg.structured_output) {
-        // If we have structured output, use it
-        extractedData = resultMsg.structured_output;
-        if (verbose) {
-          console.log(`[AgentExtraction] Using structured_output from result message`);
-        }
-      }
-    }
-  }
-
-  if (!extractedData) {
-    throw new Error(`No tool_use block found with name "${tool.name}" in Agent SDK response`);
-  }
-
-  // REQUIRED: Create displaySources function for transparency
-  const displaySources = enableCitations && citations.length > 0 && lastAssistantMessage
-    ? () => {
-      const sources = extractCitationSources(lastAssistantMessage);
-      displayCitationSources(sources, 'Extraction Sources');
-    }
-    : undefined;
-
-  return {
-    data: extractedData as T,
-    citations: citations.length > 0 ? citations : undefined,
-    rawMessages: allMessages,
-    displaySources
-  };
-}
-
-/**
  * Extract cerebellar study data using structured tool pattern
  */
 export async function extractCerebellumStudyData(
@@ -653,7 +478,7 @@ Instructions:
 }
 
 /**
- * Extract methods section using structured tool pattern (Legacy - Direct API)
+ * Extract methods section using structured tool pattern
  */
 export async function extractMethodsSection(
   client: Anthropic,
@@ -672,25 +497,7 @@ export async function extractMethodsSection(
 }
 
 /**
- * Extract methods section using Agent SDK
- */
-export async function extractMethodsSectionWithAgent(
-  methodsText: string,
-  options?: { verbose?: boolean; agentOptions?: Partial<QueryOptions> }
-): Promise<any> {
-  const result = await performStructuredExtractionWithAgent({
-    documentContent: methodsText,
-    prompt: 'Extract all methodological details from this Methods section text.',
-    tool: METHODS_EXTRACTION_TOOL,
-    verbose: options?.verbose ?? false,
-    agentOptions: options?.agentOptions
-  });
-
-  return result.data;
-}
-
-/**
- * Extract results section using structured tool pattern (Legacy - Direct API)
+ * Extract results section using structured tool pattern
  */
 export async function extractResultsSection(
   client: Anthropic,
@@ -709,25 +516,7 @@ export async function extractResultsSection(
 }
 
 /**
- * Extract results section using Agent SDK
- */
-export async function extractResultsSectionWithAgent(
-  resultsText: string,
-  options?: { verbose?: boolean; agentOptions?: Partial<QueryOptions> }
-): Promise<any> {
-  const result = await performStructuredExtractionWithAgent({
-    documentContent: resultsText,
-    prompt: 'Extract all quantitative results and statistical findings from this Results section text.',
-    tool: RESULTS_EXTRACTION_TOOL,
-    verbose: options?.verbose ?? false,
-    agentOptions: options?.agentOptions
-  });
-
-  return result.data;
-}
-
-/**
- * Extract citations using structured tool pattern (Legacy - Direct API)
+ * Extract citations using structured tool pattern
  */
 export async function extractCitationsStructured(
   client: Anthropic,
@@ -747,31 +536,6 @@ Instructions:
 - Preserve exact formatting in raw_text field`,
     tool: CITATION_EXTRACTION_TOOL,
     verbose: options?.verbose ?? false
-  });
-
-  return result.data.citations;
-}
-
-/**
- * Extract citations using Agent SDK
- */
-export async function extractCitationsStructuredWithAgent(
-  referencesText: string,
-  options?: { verbose?: boolean; agentOptions?: Partial<QueryOptions> }
-): Promise<any[]> {
-  const result = await performStructuredExtractionWithAgent({
-    documentContent: referencesText,
-    prompt: `Parse all citations from this reference section text.
-
-Instructions:
-- Extract each citation as a separate entry
-- Maintain citation numbering from the original text
-- Extract all available fields (authors, title, journal, year, volume, issue, pages, DOI)
-- Use null for missing fields
-- Preserve exact formatting in raw_text field`,
-    tool: CITATION_EXTRACTION_TOOL,
-    verbose: options?.verbose ?? false,
-    agentOptions: options?.agentOptions
   });
 
   return result.data.citations;
