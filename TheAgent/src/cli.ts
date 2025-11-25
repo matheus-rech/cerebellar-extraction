@@ -148,6 +148,82 @@ program
   });
 
 /**
+ * Run visual testing pipeline
+ */
+program
+  .command('visual-test')
+  .description('Run automated visual testing pipeline with screenshots and HTML report')
+  .argument('<pdf>', 'Path to PDF file')
+  .option('-o, --output <dir>', 'Output directory for screenshots and reports')
+  .option('-m, --modules <modules>', 'Comma-separated list of modules to enable', 'all')
+  .option('--no-report', 'Skip HTML report generation', false)
+  .option('--no-annotated-pdf', 'Skip annotated PDF creation', false)
+  .option('--no-page-screenshots', 'Skip full-page screenshots', false)
+  .option('--max-pages <number>', 'Maximum pages for full-page screenshots', '10')
+  .option('--dpi <number>', 'Screenshot resolution in DPI', '300')
+  .option('-v, --verbose', 'Enable verbose logging', false)
+  .action(async (pdfPath: string, options) => {
+    console.log('🧪 TheAgent - Visual Testing Pipeline\n');
+
+    try {
+      // Parse modules
+      const modules: ModuleName[] = options.modules === 'all'
+        ? ['full-pdf', 'tables', 'imaging', 'harmonizer', 'ipd']
+        : options.modules.split(',').map((m: string) => m.trim() as ModuleName);
+
+      // Import visual testing pipeline
+      const { runVisualTestingPipeline } = await import('./utils/visual-testing-pipeline.js');
+
+      // Run visual testing
+      const result = await runVisualTestingPipeline(pdfPath, {
+        outputDir: options.output,
+        modules,
+        generateReport: options.report !== false,
+        generateAnnotatedPDF: options.annotatedPdf !== false,
+        createPageScreenshots: options.pageScreenshots !== false,
+        maxPages: parseInt(options.maxPages),
+        verbose: options.verbose,
+        screenshotDPI: parseInt(options.dpi),
+      });
+
+      // Display summary (only if not verbose, as verbose mode already prints)
+      if (!options.verbose) {
+        console.log('✅ Visual Testing Complete!\n');
+        console.log(`📄 PDF: ${result.summary.pdfFilename}`);
+        console.log(`⏱️  Execution Time: ${(result.summary.executionTimeMs / 1000).toFixed(2)}s`);
+        console.log(`📊 Modules: ${result.summary.modulesExecuted.join(', ')}`);
+        console.log(`📸 Screenshots: ${result.screenshots.total} total`);
+        console.log(`   - Tables: ${result.screenshots.tables}`);
+        console.log(`   - Figures: ${result.screenshots.figures}`);
+        console.log(`   - Imaging: ${result.screenshots.imaging}`);
+        console.log(`   - Citations: ${result.screenshots.citations}`);
+        console.log(`   - Pages: ${result.screenshots.pages}`);
+        console.log(`\n📁 Output Directory: ${result.screenshotDir}`);
+
+        if (result.reportPath) {
+          console.log(`\n📊 HTML Report: ${result.reportPath}`);
+          console.log(`   Open in browser: open "${result.reportPath}"`);
+        }
+
+        if (result.annotatedPdfPath) {
+          console.log(`\n📝 Annotated PDF: ${result.annotatedPdfPath}`);
+        }
+
+        if (result.summary.warnings > 0) {
+          console.log(`\n⚠️  Warnings: ${result.summary.warnings}`);
+        }
+
+        if (result.summary.errors > 0) {
+          console.log(`\n❌ Errors: ${result.summary.errors}`);
+        }
+      }
+    } catch (error) {
+      console.error('\n❌ Error:', error);
+      process.exit(1);
+    }
+  });
+
+/**
  * List available modules
  */
 program
