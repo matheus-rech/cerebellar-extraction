@@ -100,7 +100,23 @@ export const extractCitations = onCall<
       const client = anthropicClient;
 
       const defaultPrompt = `Extract data from this cerebellar stroke study.
-For EACH value, cite the exact source text.
+
+CRITICAL - CITATION SOURCE RULES:
+Only cite text from these sections:
+- Results section
+- Methods/Patients/Materials section
+- Tables (Table 1, Table 2, etc.)
+- Figures and figure legends
+
+DO NOT cite from:
+- Abstract (may summarize differently)
+- Discussion (may reference other studies)
+- Introduction (background statistics from other studies)
+- References
+- Conclusions
+
+For EACH value, cite the EXACT source text from Results/Methods/Tables.
+If data only appears in Abstract/Discussion, respond "Not found".
 
 Extract these fields:
 1. First author name
@@ -115,7 +131,7 @@ Extract these fields:
 10. Mortality rate
 11. Favorable mRS outcome
 
-Be precise - only include data explicitly stated.`;
+Be precise - only include data explicitly stated in Results/Methods/Tables.`;
       const prompt = extractionPrompt || defaultPrompt;
 
       logger.info("Claude citation extraction", {
@@ -277,8 +293,24 @@ export const extractWithCitations = onRequest(
       }
       const client = anthropicClient;
 
-      const httpDefaultPrompt = `Extract the following data from this study.
-For EACH value, cite the exact source text.
+      const httpDefaultPrompt = `Extract data from this cerebellar stroke study.
+
+CRITICAL - CITATION SOURCE RULES:
+Only cite text from these sections:
+- Results section
+- Methods/Patients/Materials section
+- Tables (Table 1, Table 2, etc.)
+- Figures and figure legends
+
+DO NOT cite from:
+- Abstract (may summarize differently)
+- Discussion (may reference other studies)
+- Introduction (background statistics from other studies)
+- References
+- Conclusions
+
+For EACH value, cite the EXACT source text from Results/Methods/Tables.
+If data only appears in Abstract/Discussion, respond "Not found".
 
 Extract these fields:
 1. First author name
@@ -293,7 +325,7 @@ Extract these fields:
 10. Mortality rate
 11. Favorable mRS outcome rate
 
-Be precise - only include data explicitly stated in the text.`;
+Be precise - only include data explicitly stated in Results/Methods/Tables.`;
       const prompt = extractionPrompt || httpDefaultPrompt;
 
       logger.info("Calling Claude with citations", {
