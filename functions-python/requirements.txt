@@ -1,0 +1,10 @@
+# Firebase Functions
+firebase-functions>=0.1.0
+firebase-admin>=6.0.0
+
+# PDF Processing
+pdfplumber>=0.10.0
+Pillow>=10.0.0
+
+# Utilities
+python-dateutil>=2.8.0
