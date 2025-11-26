@@ -1,0 +1,42 @@
+{
+  "name": "cerebellar-extraction",
+  "version": "1.0.0",
+  "description": "Data extraction tool for systematic reviews of cerebellar stroke research",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "genkit": "tsx src/genkit.ts"
+  },
+  "keywords": [
+    "cerebellar-stroke",
+    "systematic-review",
+    "data-extraction",
+    "firebase",
+    "genkit"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "@genkit-ai/dev-local-vectorstore": "^1.24.0",
+    "@genkit-ai/googleai": "^1.24.0",
+    "@google-cloud/firestore": "^7.11.6",
+    "dotenv": "^17.2.3",
+    "firebase-admin": "^13.6.0",
+    "genkit": "^1.24.0",
+    "json2csv": "^6.0.0-alpha.2",
+    "p-limit": "^7.2.0",
+    "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^5.4.394",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/json2csv": "^5.0.7",
+    "@types/pdf-parse": "^1.1.5"
+  }
+}

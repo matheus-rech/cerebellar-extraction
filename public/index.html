@@ -10,6 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-performance-compat.js"></script>
 
@@ -242,6 +243,102 @@
     .highlight:hover {
       background: rgba(255, 235, 59, 0.5);
       z-index: 10;
+    }
+
+    /* Citation highlights (from Claude Native Citations) */
+    .citation-highlight {
+      position: absolute;
+      background: rgba(138, 43, 226, 0.25);
+      border: 1px solid rgba(138, 43, 226, 0.6);
+      pointer-events: auto;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-radius: 2px;
+    }
+
+    .citation-highlight:hover {
+      background: rgba(138, 43, 226, 0.4);
+      z-index: 10;
+    }
+
+    .citation-highlight.active {
+      background: rgba(138, 43, 226, 0.5);
+      border-width: 2px;
+      box-shadow: 0 0 8px rgba(138, 43, 226, 0.5);
+    }
+
+    /* Citation panel styles */
+    .citation-panel {
+      background: #f8f4ff;
+      border: 1px solid #d4c4e8;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      overflow: hidden;
+    }
+
+    .citation-panel-header {
+      padding: 10px 12px;
+      background: linear-gradient(135deg, #8e44ad, #9b59b6);
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .citation-card {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e8dff2;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .citation-card:last-child {
+      border-bottom: none;
+    }
+
+    .citation-card:hover {
+      background: #f0e8f8;
+    }
+
+    .citation-card.active {
+      background: #e8d8f4;
+      border-left: 3px solid #8e44ad;
+    }
+
+    .citation-field {
+      font-size: 11px;
+      font-weight: 600;
+      color: #8e44ad;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .citation-value {
+      font-size: 13px;
+      color: #2c3e50;
+      margin-bottom: 6px;
+    }
+
+    .citation-source {
+      font-size: 11px;
+      color: #666;
+      font-style: italic;
+      background: white;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border-left: 2px solid #9b59b6;
+      max-height: 60px;
+      overflow-y: auto;
+    }
+
+    .citation-meta {
+      font-size: 10px;
+      color: #999;
+      margin-top: 6px;
+      display: flex;
+      gap: 12px;
     }
 
     /* --- RIGHT PANEL: EXTRACTION FORM --- */
@@ -894,16 +991,15 @@
 
     // --- GLOBAL CONFIGURATION ---
 
-    // Firebase Config
-    // Updated with your specific project credentials
+    // Firebase Config - Updated for Firebase AI Logic / Data Connect
     const firebaseConfig = {
       apiKey: "AIzaSyAMr_rIvuAvRyvAcAsLTBOLrKiw8ikvQFQ",
       authDomain: "cerebellar-extraction.firebaseapp.com",
       projectId: "cerebellar-extraction",
       storageBucket: "cerebellar-extraction.firebasestorage.app",
       messagingSenderId: "1019192870442",
-      appId: "1:1019192870442:web:d1834061f9ba1ddd3c6553",
-      measurementId: "G-6SW4LC0434"
+      appId: "1:1019192870442:web:0bea61ff2c9435c63c6553",
+      measurementId: "G-GH46289Z2Z"
     };
 
     // Initialize Firebase
@@ -1003,6 +1099,115 @@
       return text.replace(/(\w)-\n(\w)/g, '$1$2').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
     };
 
+    /**
+     * Convert PDF coordinates to canvas pixel coordinates
+     * PDF coordinates: origin at bottom-left, y increases upward
+     * Canvas coordinates: origin at top-left, y increases downward
+     */
+    const pdfToCanvasCoords = (pdfX, pdfY, pdfWidth, pdfHeight, viewport) => {
+      // Apply viewport transformation
+      const [a, b, c, d, e, f] = viewport.transform;
+
+      // PDF coords to canvas coords using transformation matrix
+      // For standard viewport: x' = scale * x, y' = height - (scale * y)
+      const canvasX = pdfX * viewport.scale;
+      const canvasY = viewport.height - (pdfY * viewport.scale);
+      const canvasWidth = pdfWidth * viewport.scale;
+      const canvasHeight = pdfHeight * viewport.scale;
+
+      return {
+        left: canvasX,
+        top: canvasY - canvasHeight, // Adjust for height since y is bottom of rect in PDF
+        width: canvasWidth,
+        height: canvasHeight
+      };
+    };
+
+    /**
+     * Convert citation highlight from PDF space to canvas space
+     */
+    const convertCitationHighlight = (citation, viewport) => {
+      return {
+        ...citation,
+        canvasRect: pdfToCanvasCoords(
+          citation.x,
+          citation.y,
+          citation.width,
+          citation.height,
+          viewport
+        )
+      };
+    };
+
+    /**
+     * Call Claude API with native citations enabled via Firebase Callable Function
+     * Uses httpsCallable for automatic auth handling and type-safe serialization
+     */
+    const getFunctions = () => {
+      // Get Firebase Functions instance (uses default region us-central1)
+      return firebase.functions();
+    };
+
+    const callClaudeWithCitations = async (pdfText, positions = null, extractionPrompt = null) => {
+      try {
+        const functions = getFunctions();
+        const extractCitations = functions.httpsCallable('extractCitations');
+
+        // Call the callable function - auth token automatically included
+        const result = await extractCitations({
+          pdfText,
+          positions,
+          extractionPrompt
+        });
+
+        return result.data; // Callable functions return {data: ...}
+      } catch (error) {
+        // Firebase callable errors have code and message
+        console.warn('Citation API error:', error.code, error.message);
+        // Return null to allow fallback to Gemini
+        return null;
+      }
+    };
+
+    /**
+     * Extract text with positions from PDF pages
+     * Returns array of position objects for citation mapping
+     */
+    const extractPdfPositions = async (pdfDoc) => {
+      const positions = [];
+      let globalCharIndex = 0;
+
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+
+        for (const item of textContent.items) {
+          if (!item.str) continue;
+
+          const text = item.str;
+          const startChar = globalCharIndex;
+          const endChar = globalCharIndex + text.length;
+
+          positions.push({
+            text,
+            startChar,
+            endChar,
+            x: item.transform[4],
+            y: item.transform[5],
+            width: item.width || 0,
+            height: item.height || 10,
+            page: pageNum,
+          });
+
+          globalCharIndex = endChar + 1; // +1 for space separator
+        }
+
+        globalCharIndex += 2; // Page separator
+      }
+
+      return positions;
+    };
+
     const callGemini = async (prompt, schema = null) => {
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
@@ -1040,6 +1245,11 @@
       const [currentField, setCurrentField] = useState('');
       const [selectionMode, setSelectionMode] = useState(false);
       const [aiFilledFields, setAiFilledFields] = useState(new Set());
+
+      // Citation State (from Claude Native Citations)
+      const [citations, setCitations] = useState([]);
+      const [activeCitation, setActiveCitation] = useState(null);
+      const [citationHighlights, setCitationHighlights] = useState([]);
 
       // Firebase State
       const [user, setUser] = useState(null);
@@ -1194,6 +1404,40 @@
           const newSet = new Set(aiFilledFields);
           newSet.delete(path);
           setAiFilledFields(newSet);
+        }
+      };
+
+      // --- FEATURE 0: CLAUDE CITATION EXTRACTION ---
+      const handleClaudeCitationExtract = async () => {
+        if (!pdfDoc) return showToast("No PDF loaded", "error");
+        setIsLoading(true);
+
+        try {
+          // Extract full text with positions
+          const positions = await extractPdfPositions(pdfDoc);
+          const fullText = positions.map(p => p.text).join(' ');
+
+          showToast("Extracting with Claude citations...");
+
+          const result = await callClaudeWithCitations(fullText, positions);
+
+          if (result && result.success) {
+            // Set citations for display
+            setCitations(result.citations || []);
+            setCitationHighlights(result.citations || []);
+
+            showToast(`✨ Found ${result.citations?.length || 0} verified citations!`);
+            analytics.logEvent('claude_citation_extraction', { citationCount: result.citations?.length || 0 });
+          } else {
+            showToast("Citation extraction unavailable, using Gemini fallback", "error");
+            // Fall back to Gemini
+            await handleAiAutofill();
+          }
+        } catch (e) {
+          console.error('Citation extraction error:', e);
+          showToast("Citation extraction failed", "error");
+        } finally {
+          setIsLoading(false);
         }
       };
 
@@ -1422,6 +1666,12 @@
             onFieldSelect={setCurrentField}
             onSelectionModeToggle={setSelectionMode}
             onAddHighlight={addHighlight}
+            citationHighlights={citationHighlights}
+            activeCitation={activeCitation}
+            onCitationClick={(cit) => {
+              setActiveCitation(cit);
+              if (cit.page !== pageNum) setPageNum(cit.page);
+            }}
           />
 
           <div className="extraction-panel">
@@ -1434,11 +1684,22 @@
                   <span className="save-status saved"><Icons.Check size={12} /> Saved</span>
                 )}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
                 {activeTab === 'extract' && (
-                  <button className="btn-ai-magic" onClick={handleAiAutofill} disabled={!pageOneText}>
-                    <Icons.Wand2 size={12} /> Auto-Fill
-                  </button>
+                  <>
+                    <button
+                      className="btn-ai-magic"
+                      onClick={handleClaudeCitationExtract}
+                      disabled={!pdfDoc}
+                      style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+                      title="Extract with verified source citations"
+                    >
+                      <Icons.Quote size={12} /> Citations
+                    </button>
+                    <button className="btn-ai-magic" onClick={handleAiAutofill} disabled={!pageOneText}>
+                      <Icons.Wand2 size={12} /> Auto-Fill
+                    </button>
+                  </>
                 )}
               </div>
               <div className="panel-tabs">
@@ -1465,6 +1726,12 @@
                   onSmartSuggest={handleSmartSuggest}
                   onQualityCheck={handleQualityCheck}
                   onGenerateCitation={handleGenerateCitation}
+                  citations={citations}
+                  activeCitation={activeCitation}
+                  onCitationSelect={(cit) => {
+                    setActiveCitation(cit);
+                    if (cit.page) setPageNum(cit.page);
+                  }}
                 />
               ) : (
                 <ChatInterface
@@ -1541,9 +1808,9 @@
       );
     }
 
-    function ExtractionForm({ data, highlights, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation }) {
+    function ExtractionForm({ data, highlights, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect }) {
       const currentPath = FIELD_MAP[currentField];
-      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false });
+      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false });
       const toggle = (sec) => setCollapsed(prev => ({ ...prev, [sec]: !prev[sec] }));
 
       const Input = ({ label, path, type = "text", rows }) => {
@@ -1654,6 +1921,33 @@
             </div>
           </div>
 
+          {/* Citation Provenance Panel */}
+          {citations && citations.length > 0 && (
+            <div className="citation-panel">
+              <div className="citation-panel-header" onClick={() => toggle('cit')}>
+                <span>📎 Verified Citations ({citations.length})</span>
+                <Icons.ChevronDown size={16} style={{ marginLeft: 'auto', transform: collapsed.cit ? 'rotate(-90deg)' : '' }} />
+              </div>
+              {!collapsed.cit && citations.map((cit, idx) => (
+                <div
+                  key={cit.id || idx}
+                  className={`citation-card ${activeCitation?.id === cit.id ? 'active' : ''}`}
+                  onClick={() => onCitationSelect(cit)}
+                >
+                  <div className="citation-field">{cit.field || 'Extracted Value'}</div>
+                  <div className="citation-value">{cit.value || cit.citedText?.substring(0, 60)}</div>
+                  <div className="citation-source">
+                    "{cit.sourceText || cit.citedText}"
+                  </div>
+                  <div className="citation-meta">
+                    <span>Page {cit.page}</span>
+                    <span>Chars {cit.startChar}-{cit.endChar}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {highlights.length > 0 && (
             <div className="annotations-container">
               <h3 style={{ fontSize: '12px', fontWeight: 600, color: '#777', marginBottom: '10px', marginTop: '20px' }}>CAPTURED SNIPPETS</h3>
@@ -1676,11 +1970,13 @@
     function PDFPanel({
       pdfFile, pdfDoc, pageNum, numPages, highlights,
       currentField, selectionMode, onFileUpload, onPageChange,
-      onFieldSelect, onSelectionModeToggle, onAddHighlight
+      onFieldSelect, onSelectionModeToggle, onAddHighlight,
+      citationHighlights, activeCitation, onCitationClick, onViewportChange
     }) {
       const canvasRef = useRef(null);
       const [scale, setScale] = useState(1.2);
       const [textContent, setTextContent] = useState(null);
+      const [viewport, setViewport] = useState(null);
 
       useEffect(() => {
         if (pdfDoc) renderPage();
@@ -1744,12 +2040,15 @@
       const renderPage = async () => {
         try {
           const page = await pdfDoc.getPage(pageNum);
-          const viewport = page.getViewport({ scale });
+          const vp = page.getViewport({ scale });
+          setViewport(vp);
+          if (onViewportChange) onViewportChange(vp);
+
           const canvas = canvasRef.current;
           const ctx = canvas.getContext('2d');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          await page.render({ canvasContext: ctx, viewport }).promise;
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          await page.render({ canvasContext: ctx, viewport: vp }).promise;
           const text = await page.getTextContent();
           setTextContent(text);
         } catch (e) { console.error(e); }
@@ -1798,11 +2097,34 @@
               <div className="pdf-canvas-wrapper">
                 <canvas ref={canvasRef} id="pdf-canvas" style={{ cursor: selectionMode ? 'crosshair' : 'default' }} />
                 <div className="highlight-layer">
+                  {/* Manual selection highlights (yellow) */}
                   {highlights.filter(h => h.page === pageNum).map(h => (
                     <div key={h.id} className="highlight"
                       style={{ left: h.rect.left, top: h.rect.top, width: h.rect.width, height: h.rect.height }}
                       title={h.field + ": " + h.text} />
                   ))}
+
+                  {/* Claude citation highlights (purple) */}
+                  {viewport && citationHighlights && citationHighlights
+                    .filter(c => c.page === pageNum)
+                    .map((c, idx) => {
+                      const rect = pdfToCanvasCoords(c.x, c.y, c.width, c.height, viewport);
+                      const isActive = activeCitation && activeCitation.id === c.id;
+                      return (
+                        <div
+                          key={`cit-${idx}-${c.page}`}
+                          className={`citation-highlight ${isActive ? 'active' : ''}`}
+                          style={{
+                            left: rect.left,
+                            top: rect.top,
+                            width: Math.max(rect.width, 10),
+                            height: Math.max(rect.height, 12)
+                          }}
+                          title={`Citation: "${c.citedText?.substring(0, 50)}..."`}
+                          onClick={() => onCitationClick && onCitationClick(c)}
+                        />
+                      );
+                    })}
                 </div>
               </div>
             ) : (
@@ -1817,6 +2139,40 @@
     }
 
     ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+
+  <!-- 🤖 Google Generative AI (Gemini) - Browser-compatible SDK -->
+  <script type="module">
+    import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai';
+
+    // ⚠️ Replace with your actual API key (visible in browser - OK for dev, not for production)
+    const API_KEY = 'GOOGLE_GENAI_API_KEY';
+
+    // Initialize the Gemini client
+    const genAI = new GoogleGenerativeAI(API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    // Example: Hello flow equivalent
+    async function helloFlow(name) {
+      try {
+        const result = await model.generateContent(`Hello Gemini, my name is ${name}`);
+        const response = await result.response;
+        const text = response.text();
+        console.log('Gemini response:', text);
+        return text;
+      } catch (error) {
+        console.error('Gemini error:', error);
+      }
+    }
+
+    // Make it globally accessible for testing
+    window.helloFlow = helloFlow;
+    window.geminiModel = model;
+
+    // Test call (uncomment to run on page load)
+    // helloFlow('Chris');
+
+    console.log('✅ Google Generative AI SDK loaded. Try: helloFlow("YourName") in console');
   </script>
 </body>
 

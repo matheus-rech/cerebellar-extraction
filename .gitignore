@@ -1,3 +1,37 @@
+# macOS
 .DS_Store
+
+# Firebase
 .firebase/
+
+# Dependencies
 node_modules/
+
+# Environment variables (contains API keys)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+
+# Genkit local dev
+.genkit/
+
+# Test PDFs
+pdfs/
+
+# Temporary files
+*.local
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# Firebase config with secrets
+firebase-config.json
+firebase-config.ts
+
+# Misc
+"firebase deploy./"
