@@ -980,6 +980,183 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #a0aec0;
     }
+
+    /* ============================================
+       DETAILED EXTRACTION: Grid Layouts & Dynamic Fields
+       ============================================ */
+
+    /* Grid Layouts for Detailed Extraction */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .grid-3col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    /* mRS Distribution Grid (7 columns for scores 0-6) */
+    .grid-mrs {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .grid-mrs .form-group {
+      margin-bottom: 0;
+    }
+
+    .grid-mrs .form-group label {
+      text-align: center;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .grid-mrs .form-group input {
+      text-align: center;
+      font-size: 14px;
+    }
+
+    /* Dynamic Field Container */
+    .dynamic-container {
+      background: #ffffff;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    .dynamic-container:hover {
+      border-color: var(--primary);
+      box-shadow: 0 2px 8px rgba(52, 152, 219, 0.1);
+    }
+
+    .dynamic-container h4 {
+      color: var(--secondary);
+      font-size: 16px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .dynamic-container h5 {
+      color: var(--primary);
+      font-size: 14px;
+      margin: 12px 0 8px 0;
+      font-weight: 600;
+    }
+
+    /* Remove Button for Dynamic Fields */
+    .remove-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      padding: 6px 12px;
+      background: #e74c3c;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .remove-btn:hover {
+      background: #c0392b;
+      transform: scale(1.05);
+    }
+
+    /* Add Field Button */
+    .add-field-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      background: var(--success);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 16px;
+    }
+
+    .add-field-btn:hover {
+      background: #229954;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(39, 174, 96, 0.3);
+    }
+
+    .add-field-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Field Section Headers */
+    .field-section {
+      margin-bottom: 32px;
+    }
+
+    .field-section > h3 {
+      color: var(--secondary);
+      font-size: 18px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 3px solid var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .field-section-description {
+      color: #666;
+      font-size: 13px;
+      margin-bottom: 12px;
+      font-style: italic;
+    }
+
+    /* Arm Selector Specific Styling */
+    .arm-selector {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .arm-selector:focus {
+      border-color: var(--primary);
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+    }
+
+    /* Empty State for Dynamic Fields */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+      font-style: italic;
+    }
+
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 12px;
+      opacity: 0.3;
+    }
   </style>
 </head>
 
@@ -1232,6 +1409,503 @@
 
     // --- COMPONENTS ---
 
+    // Detailed Extraction Field Components
+    const IndicationField = ({ data, onUpdate, onRemove, index }) => (
+      <div className="dynamic-container">
+        <h4>Indication {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Sign/Symptom</label>
+            <select
+              value={data.sign}
+              onChange={(e) => onUpdate('sign', e.target.value)}
+              className="form-control"
+            >
+              <option value="">Select...</option>
+              <option value="Drowsiness">Drowsiness</option>
+              <option value="GCS_Drop">Drop in GCS</option>
+              <option value="Imaging_Mass_Effect">Imaging signs of mass effect</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Count (N)</label>
+            <input
+              type="number"
+              value={data.count}
+              onChange={(e) => onUpdate('count', e.target.value)}
+              className="form-control"
+            />
+          </div>
+        </div>
+      </div>
+    );
+
+    const InterventionField = ({ data, onUpdate, onRemove, index }) => (
+      <div className="dynamic-container">
+        <h4>Intervention Type {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="form-group">
+          <label>Surgical Type</label>
+          <select
+            value={data.type}
+            onChange={(e) => onUpdate('type', e.target.value)}
+            className="form-control"
+          >
+            <option value="">Select...</option>
+            <option value="SDC_EVD">SDC + EVD</option>
+            <option value="SDC_ALONE">SDC Alone</option>
+            <option value="EVD_ALONE">EVD Alone</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label>Time To Surgery (Hours)</label>
+          <input
+            type="number"
+            step="0.1"
+            value={data.timeToSurgery}
+            onChange={(e) => onUpdate('timeToSurgery', e.target.value)}
+            className="form-control"
+          />
+        </div>
+        <div className="form-group">
+          <label>Duraplasty?</label>
+          <select
+            value={data.duraplasty}
+            onChange={(e) => onUpdate('duraplasty', e.target.value)}
+            className="form-control"
+          >
+            <option value="null">Unknown</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+    );
+
+    const StudyArmField = ({ data, onUpdate, onRemove, index }) => (
+      <div className="dynamic-container">
+        <h4>Study Arm {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Label</label>
+            <input
+              type="text"
+              value={data.label}
+              onChange={(e) => onUpdate('label', e.target.value)}
+              className="form-control"
+              placeholder="e.g., SDC Group, Control"
+            />
+          </div>
+          <div className="form-group">
+            <label>Sample Size (N)</label>
+            <input
+              type="number"
+              value={data.sampleSize}
+              onChange={(e) => onUpdate('sampleSize', e.target.value)}
+              className="form-control"
+            />
+          </div>
+        </div>
+      </div>
+    );
+
+    const MortalityField = ({ data, onUpdate, onRemove, index, availableArms }) => (
+      <div className="dynamic-container">
+        <h4>Mortality Data Point {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Arm</label>
+            <select
+              value={data.arm}
+              onChange={(e) => onUpdate('arm', e.target.value)}
+              className="form-control arm-selector"
+            >
+              <option value="">Select Arm...</option>
+              {availableArms.map(arm => (
+                <option key={arm.id} value={arm.label}>{arm.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Timepoint</label>
+            <input
+              type="text"
+              value={data.timepoint}
+              onChange={(e) => onUpdate('timepoint', e.target.value)}
+              className="form-control"
+              placeholder="e.g., 30 days, 90 days"
+            />
+          </div>
+        </div>
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Deaths (N)</label>
+            <input
+              type="number"
+              value={data.deaths}
+              onChange={(e) => onUpdate('deaths', e.target.value)}
+              className="form-control"
+            />
+          </div>
+          <div className="form-group">
+            <label>Total (N)</label>
+            <input
+              type="number"
+              value={data.total}
+              onChange={(e) => onUpdate('total', e.target.value)}
+              className="form-control"
+            />
+          </div>
+        </div>
+      </div>
+    );
+
+    const MRSField = ({ data, onUpdate, onRemove, index, availableArms }) => (
+      <div className="dynamic-container">
+        <h4>mRS Data Point {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Arm</label>
+            <select
+              value={data.arm}
+              onChange={(e) => onUpdate('arm', e.target.value)}
+              className="form-control arm-selector"
+            >
+              <option value="">Select Arm...</option>
+              {availableArms.map(arm => (
+                <option key={arm.id} value={arm.label}>{arm.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Timepoint</label>
+            <input
+              type="text"
+              value={data.timepoint}
+              onChange={(e) => onUpdate('timepoint', e.target.value)}
+              className="form-control"
+              placeholder="e.g., 90 days, 6 months"
+            />
+          </div>
+        </div>
+        <h5>mRS Distribution (Counts for scores 0-6)</h5>
+        <div className="grid-mrs">
+          {[0, 1, 2, 3, 4, 5, 6].map(score => (
+            <div key={score} className="form-group">
+              <label>{score}</label>
+              <input
+                type="number"
+                value={data.scores[score]}
+                onChange={(e) => onUpdate(`score_${score}`, e.target.value)}
+                className="form-control"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+
+    const ComplicationField = ({ data, onUpdate, onRemove, index, availableArms }) => (
+      <div className="dynamic-container">
+        <h4>Complication {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Description</label>
+            <input
+              type="text"
+              value={data.description}
+              onChange={(e) => onUpdate('description', e.target.value)}
+              className="form-control"
+              placeholder="e.g., Infection, Hemorrhage"
+            />
+          </div>
+          <div className="form-group">
+            <label>Arm</label>
+            <select
+              value={data.arm}
+              onChange={(e) => onUpdate('arm', e.target.value)}
+              className="form-control arm-selector"
+            >
+              <option value="">Select Arm...</option>
+              {availableArms.map(arm => (
+                <option key={arm.id} value={arm.label}>{arm.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="form-group">
+          <label>Count (N)</label>
+          <input
+            type="number"
+            value={data.count}
+            onChange={(e) => onUpdate('count', e.target.value)}
+            className="form-control"
+          />
+        </div>
+      </div>
+    );
+
+    const PredictorField = ({ data, onUpdate, onRemove, index }) => (
+      <div className="dynamic-container">
+        <h4>Predictor Analysis {index + 1}</h4>
+        <button className="remove-btn" onClick={onRemove}>Remove</button>
+        <div className="form-group">
+          <label>Predictor Variable</label>
+          <input
+            type="text"
+            value={data.variable}
+            onChange={(e) => onUpdate('variable', e.target.value)}
+            className="form-control"
+            placeholder="e.g., Age, GCS, Hydrocephalus"
+          />
+        </div>
+        <div className="grid-3col">
+          <div className="form-group">
+            <label>Effect Size (OR/HR)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={data.effectSize}
+              onChange={(e) => onUpdate('effectSize', e.target.value)}
+              className="form-control"
+            />
+          </div>
+          <div className="form-group">
+            <label>95% CI (Lower)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={data.ciLower}
+              onChange={(e) => onUpdate('ciLower', e.target.value)}
+              className="form-control"
+            />
+          </div>
+          <div className="form-group">
+            <label>95% CI (Upper)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={data.ciUpper}
+              onChange={(e) => onUpdate('ciUpper', e.target.value)}
+              className="form-control"
+            />
+          </div>
+        </div>
+        <div className="form-group">
+          <label>p-Value</label>
+          <input
+            type="number"
+            step="0.001"
+            value={data.pValue}
+            onChange={(e) => onUpdate('pValue', e.target.value)}
+            className="form-control"
+          />
+        </div>
+      </div>
+    );
+
+    // Detailed Extraction Panel - Main container for all dynamic fields
+    const DetailedExtractionPanel = ({
+      indications, interventions, studyArms, mortalityData, mrsData, complications, predictors,
+      onAddIndication, onAddIntervention, onAddArm, onAddMortality, onAddMRS, onAddComplication, onAddPredictor,
+      onUpdateField, onRemoveField
+    }) => {
+      return (
+        <div style={{ padding: '20px', overflowY: 'auto', height: '100%', background: '#f8f9fa' }}>
+          <h2 style={{ marginBottom: '24px', color: '#2c3e50' }}>Detailed Extraction</h2>
+          <p style={{ marginBottom: '32px', color: '#666', fontSize: '14px' }}>
+            Capture comprehensive study data with dynamic fields for indications, interventions, study arms, outcomes, and statistical analyses.
+          </p>
+
+          {/* Study Arms Section (CRITICAL: Must come first for linked selectors) */}
+          <div className="field-section">
+            <h3>📊 Study Arms</h3>
+            <p className="field-section-description">
+              Define treatment groups. These arms will automatically appear in mortality, mRS, and complication selectors.
+            </p>
+            <button className="add-field-btn" onClick={onAddArm}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add Study Arm
+            </button>
+            {studyArms.length === 0 ? (
+              <div className="empty-state">Add your first study arm to enable arm-specific data collection</div>
+            ) : (
+              studyArms.map((arm, i) => (
+                <StudyArmField
+                  key={arm.id}
+                  data={arm}
+                  index={i}
+                  onUpdate={(field, value) => onUpdateField('arm', arm.id, field, value)}
+                  onRemove={() => onRemoveField('arm', arm.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Indications Section */}
+          <div className="field-section">
+            <h3>🏥 Indications for Surgery</h3>
+            <p className="field-section-description">Signs and symptoms that indicated need for surgical intervention.</p>
+            <button className="add-field-btn" onClick={onAddIndication}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add Indication
+            </button>
+            {indications.length === 0 ? (
+              <div className="empty-state">No indications added yet</div>
+            ) : (
+              indications.map((indication, i) => (
+                <IndicationField
+                  key={indication.id}
+                  data={indication}
+                  index={i}
+                  onUpdate={(field, value) => onUpdateField('indication', indication.id, field, value)}
+                  onRemove={() => onRemoveField('indication', indication.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Interventions Section */}
+          <div className="field-section">
+            <h3>⚕️ Interventions</h3>
+            <p className="field-section-description">Surgical procedures and intervention details.</p>
+            <button className="add-field-btn" onClick={onAddIntervention}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add Intervention
+            </button>
+            {interventions.length === 0 ? (
+              <div className="empty-state">No interventions added yet</div>
+            ) : (
+              interventions.map((intervention, i) => (
+                <InterventionField
+                  key={intervention.id}
+                  data={intervention}
+                  index={i}
+                  onUpdate={(field, value) => onUpdateField('intervention', intervention.id, field, value)}
+                  onRemove={() => onRemoveField('intervention', intervention.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Mortality Section */}
+          <div className="field-section">
+            <h3>💀 Mortality Data</h3>
+            <p className="field-section-description">Mortality outcomes by study arm and timepoint.</p>
+            <button className="add-field-btn" onClick={onAddMortality}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add Mortality Data Point
+            </button>
+            {mortalityData.length === 0 ? (
+              <div className="empty-state">No mortality data added yet. Add study arms first to enable arm selection.</div>
+            ) : (
+              mortalityData.map((mortality, i) => (
+                <MortalityField
+                  key={mortality.id}
+                  data={mortality}
+                  index={i}
+                  availableArms={studyArms.filter(arm => arm.label.trim())}
+                  onUpdate={(field, value) => onUpdateField('mortality', mortality.id, field, value)}
+                  onRemove={() => onRemoveField('mortality', mortality.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* mRS Section */}
+          <div className="field-section">
+            <h3>📈 mRS Distribution</h3>
+            <p className="field-section-description">Modified Rankin Scale outcomes with full 0-6 score distribution.</p>
+            <button className="add-field-btn" onClick={onAddMRS}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add mRS Data Point
+            </button>
+            {mrsData.length === 0 ? (
+              <div className="empty-state">No mRS data added yet. Add study arms first to enable arm selection.</div>
+            ) : (
+              mrsData.map((mrs, i) => (
+                <MRSField
+                  key={mrs.id}
+                  data={mrs}
+                  index={i}
+                  availableArms={studyArms.filter(arm => arm.label.trim())}
+                  onUpdate={(field, value) => onUpdateField('mrs', mrs.id, field, value)}
+                  onRemove={() => onRemoveField('mrs', mrs.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Complications Section */}
+          <div className="field-section">
+            <h3>⚠️ Complications</h3>
+            <p className="field-section-description">Adverse events and complications by study arm.</p>
+            <button className="add-field-btn" onClick={onAddComplication}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add Complication
+            </button>
+            {complications.length === 0 ? (
+              <div className="empty-state">No complications added yet. Add study arms first to enable arm selection.</div>
+            ) : (
+              complications.map((complication, i) => (
+                <ComplicationField
+                  key={complication.id}
+                  data={complication}
+                  index={i}
+                  availableArms={studyArms.filter(arm => arm.label.trim())}
+                  onUpdate={(field, value) => onUpdateField('complication', complication.id, field, value)}
+                  onRemove={() => onRemoveField('complication', complication.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Predictors Section */}
+          <div className="field-section">
+            <h3>📊 Predictor Analyses</h3>
+            <p className="field-section-description">Statistical predictors with effect sizes and confidence intervals.</p>
+            <button className="add-field-btn" onClick={onAddPredictor}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14m-7-7h14" />
+              </svg>
+              Add Predictor
+            </button>
+            {predictors.length === 0 ? (
+              <div className="empty-state">No predictors added yet</div>
+            ) : (
+              predictors.map((predictor, i) => (
+                <PredictorField
+                  key={predictor.id}
+                  data={predictor}
+                  index={i}
+                  onUpdate={(field, value) => onUpdateField('predictor', predictor.id, field, value)}
+                  onRemove={() => onRemoveField('predictor', predictor.id)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      );
+    };
+
     function App() {
       // PDF State
       const [pdfFile, setPdfFile] = useState(null);
@@ -1268,12 +1942,183 @@
       // UI State
       const [toast, setToast] = useState(null);
       const [isLoading, setIsLoading] = useState(false);
-      const [activeTab, setActiveTab] = useState('extract'); // 'extract' or 'chat'
+      const [activeTab, setActiveTab] = useState('extract'); // 'extract', 'chat', or 'detailed'
       const [chatMessages, setChatMessages] = useState([]); // Array of {role, text}
+
+      // Detailed Extraction State (7 dynamic field types)
+      const [indications, setIndications] = useState([]);
+      const [interventions, setInterventions] = useState([]);
+      const [studyArms, setStudyArms] = useState([]);
+      const [mortalityData, setMortalityData] = useState([]);
+      const [mrsData, setMrsData] = useState([]);
+      const [complications, setComplications] = useState([]);
+      const [predictors, setPredictors] = useState([]);
+
+      // Counters for generating unique IDs
+      const counterRef = useRef({
+        indication: 0,
+        intervention: 0,
+        arm: 0,
+        mortality: 0,
+        mrs: 0,
+        complication: 0,
+        predictor: 0
+      });
 
       const showToast = (message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
+      };
+
+      // --- DYNAMIC FIELD MANAGEMENT ---
+      // Add field handlers
+      const addIndication = () => {
+        const id = counterRef.current.indication++;
+        setIndications(prev => [...prev, {
+          id,
+          sign: '',
+          count: ''
+        }]);
+      };
+
+      const addIntervention = () => {
+        const id = counterRef.current.intervention++;
+        setInterventions(prev => [...prev, {
+          id,
+          type: '',
+          timeToSurgery: '',
+          duraplasty: 'null'
+        }]);
+      };
+
+      const addStudyArm = () => {
+        const id = counterRef.current.arm++;
+        setStudyArms(prev => [...prev, {
+          id,
+          label: '',
+          sampleSize: ''
+        }]);
+      };
+
+      const addMortality = () => {
+        const id = counterRef.current.mortality++;
+        setMortalityData(prev => [...prev, {
+          id,
+          arm: '',
+          timepoint: '',
+          deaths: '',
+          total: ''
+        }]);
+      };
+
+      const addMRS = () => {
+        const id = counterRef.current.mrs++;
+        setMrsData(prev => [...prev, {
+          id,
+          arm: '',
+          timepoint: '',
+          scores: { 0: '', 1: '', 2: '', 3: '', 4: '', 5: '', 6: '' }
+        }]);
+      };
+
+      const addComplication = () => {
+        const id = counterRef.current.complication++;
+        setComplications(prev => [...prev, {
+          id,
+          description: '',
+          arm: '',
+          count: ''
+        }]);
+      };
+
+      const addPredictor = () => {
+        const id = counterRef.current.predictor++;
+        setPredictors(prev => [...prev, {
+          id,
+          variable: '',
+          effectSize: '',
+          ciLower: '',
+          ciUpper: '',
+          pValue: ''
+        }]);
+      };
+
+      // Remove field handlers
+      const removeField = (type, id) => {
+        switch (type) {
+          case 'indication':
+            setIndications(prev => prev.filter(item => item.id !== id));
+            break;
+          case 'intervention':
+            setInterventions(prev => prev.filter(item => item.id !== id));
+            break;
+          case 'arm':
+            setStudyArms(prev => prev.filter(item => item.id !== id));
+            break;
+          case 'mortality':
+            setMortalityData(prev => prev.filter(item => item.id !== id));
+            break;
+          case 'mrs':
+            setMrsData(prev => prev.filter(item => item.id !== id));
+            break;
+          case 'complication':
+            setComplications(prev => prev.filter(item => item.id !== id));
+            break;
+          case 'predictor':
+            setPredictors(prev => prev.filter(item => item.id !== id));
+            break;
+        }
+      };
+
+      // Update field value handlers
+      const updateField = (type, id, field, value) => {
+        switch (type) {
+          case 'indication':
+            setIndications(prev => prev.map(item =>
+              item.id === id ? { ...item, [field]: value } : item
+            ));
+            break;
+          case 'intervention':
+            setInterventions(prev => prev.map(item =>
+              item.id === id ? { ...item, [field]: value } : item
+            ));
+            break;
+          case 'arm':
+            setStudyArms(prev => prev.map(item =>
+              item.id === id ? { ...item, [field]: value } : item
+            ));
+            break;
+          case 'mortality':
+            setMortalityData(prev => prev.map(item =>
+              item.id === id ? { ...item, [field]: value } : item
+            ));
+            break;
+          case 'mrs':
+            if (field.startsWith('score_')) {
+              const scoreNum = field.split('_')[1];
+              setMrsData(prev => prev.map(item =>
+                item.id === id ? {
+                  ...item,
+                  scores: { ...item.scores, [scoreNum]: value }
+                } : item
+              ));
+            } else {
+              setMrsData(prev => prev.map(item =>
+                item.id === id ? { ...item, [field]: value } : item
+              ));
+            }
+            break;
+          case 'complication':
+            setComplications(prev => prev.map(item =>
+              item.id === id ? { ...item, [field]: value } : item
+            ));
+            break;
+          case 'predictor':
+            setPredictors(prev => prev.map(item =>
+              item.id === id ? { ...item, [field]: value } : item
+            ));
+            break;
+        }
       };
 
       // --- FIREBASE AUTH ---
@@ -1706,6 +2551,9 @@
                 <button className={`tab-btn ${activeTab === 'extract' ? 'active' : ''}`} onClick={() => setActiveTab('extract')}>
                   <Icons.FileText size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Form
                 </button>
+                <button className={`tab-btn ${activeTab === 'detailed' ? 'active' : ''}`} onClick={() => setActiveTab('detailed')}>
+                  <Icons.Database size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Detailed
+                </button>
                 <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
                   <Icons.MessageSquare size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Chat with Paper
                 </button>
@@ -1732,6 +2580,25 @@
                     setActiveCitation(cit);
                     if (cit.page) setPageNum(cit.page);
                   }}
+                />
+              ) : activeTab === 'detailed' ? (
+                <DetailedExtractionPanel
+                  indications={indications}
+                  interventions={interventions}
+                  studyArms={studyArms}
+                  mortalityData={mortalityData}
+                  mrsData={mrsData}
+                  complications={complications}
+                  predictors={predictors}
+                  onAddIndication={addIndication}
+                  onAddIntervention={addIntervention}
+                  onAddArm={addStudyArm}
+                  onAddMortality={addMortality}
+                  onAddMRS={addMRS}
+                  onAddComplication={addComplication}
+                  onAddPredictor={addPredictor}
+                  onUpdateField={updateField}
+                  onRemoveField={removeField}
                 />
               ) : (
                 <ChatInterface
