@@ -316,3 +316,68 @@ def detect_sections(req: https_fn.Request) -> https_fn.Response:
             status=500,
             mimetype="application/json"
         )
+
+
+@https_fn.on_request(
+    memory=options.MemoryOption.MB_512,
+    timeout_sec=120,
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST"])
+)
+def extract_figures(req: https_fn.Request) -> https_fn.Response:
+    """
+    Extract figures/images from PDF.
+    Returns base64 encoded images and their metadata.
+
+    Request body: { "pdf_base64": "..." }
+    Response: { "figures": [{"page": N, "image_base64": "...", "bbox": [...]}] }
+    """
+    try:
+        data = req.get_json()
+        if not data or 'pdf_base64' not in data:
+            return https_fn.Response(
+                json.dumps({"error": "pdf_base64 required"}),
+                status=400,
+                mimetype="application/json"
+            )
+
+        pdf_bytes = base64.b64decode(data['pdf_base64'])
+        figures = []
+
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for i, page in enumerate(pdf.pages):
+                for image in page.images:
+                    # Get image bounding box
+                    bbox = (image['x0'], image['top'], image['x1'], image['bottom'])
+                    
+                    # Crop image from page
+                    cropped = page.crop(bbox)
+                    img_obj = cropped.to_image(resolution=150)
+                    
+                    # Convert to base64
+                    img_byte_arr = io.BytesIO()
+                    img_obj.save(img_byte_arr, format='PNG')
+                    img_base64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+
+                    figures.append({
+                        "page": i + 1,
+                        "image_base64": img_base64,
+                        "bbox": bbox,
+                        "width": image['width'],
+                        "height": image['height']
+                    })
+
+        return https_fn.Response(
+            json.dumps({
+                "success": True,
+                "figures": figures,
+                "figure_count": len(figures)
+            }),
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        return https_fn.Response(
+            json.dumps({"error": str(e)}),
+            status=500,
+            mimetype="application/json"
+        )

@@ -1110,7 +1110,7 @@
       margin-bottom: 32px;
     }
 
-    .field-section > h3 {
+    .field-section>h3 {
       color: var(--secondary);
       font-size: 18px;
       margin-bottom: 16px;
@@ -1190,7 +1190,7 @@
     const perf = firebase.performance();
 
     const appId = "cerebellar-extraction";
-    const apiKey = "AIzaSyABpwQcfzPOAswAV6Sa-CtBULJRULiD-uE"; // Gemini API key
+    const apiKey = "AIzaSyBJQLItldk8YHZl9pCs40zbo6LDkGdYGwA"; // Gemini API key
 
     // Inline SVGs to replace Lucide Icons
     const Icons = {
@@ -2029,25 +2029,49 @@
       const [isExtracting, setIsExtracting] = useState(false);
 
       const extractFigures = async () => {
-        if (!pdfFile) {
+        if (!pdfDoc) {
           alert('Please upload a PDF first');
           return;
         }
 
         setIsExtracting(true);
         try {
-          // TODO: Implement actual figure extraction using Cloud Functions
-          // For now, show placeholder
-          setTimeout(() => {
-            setFigures([
-              { id: 1, pageNum: 2, type: 'Chart', caption: 'Figure 1: Patient enrollment flowchart' },
-              { id: 2, pageNum: 4, type: 'Graph', caption: 'Figure 2: Mortality rates comparison' },
-              { id: 3, pageNum: 7, type: 'Image', caption: 'Figure 3: CT scan showing cerebellar edema' }
-            ]);
-            setIsExtracting(false);
-          }, 1500);
+          const extractedFigures = [];
+
+          // Render each page as an image
+          for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+            const page = await pdfDoc.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.5 });
+
+            // Create canvas for rendering
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            // Render page to canvas
+            await page.render({
+              canvasContext: context,
+              viewport: viewport
+            }).promise;
+
+            // Convert canvas to data URL
+            const imageDataUrl = canvas.toDataURL('image/png');
+
+            extractedFigures.push({
+              id: pageNum,
+              pageNum: pageNum,
+              type: 'Page Snapshot',
+              caption: `Page ${pageNum}`,
+              imageData: imageDataUrl
+            });
+          }
+
+          setFigures(extractedFigures);
         } catch (error) {
           console.error('Figure extraction failed:', error);
+          alert('Figure extraction failed. See console for details.');
+        } finally {
           setIsExtracting(false);
         }
       };
