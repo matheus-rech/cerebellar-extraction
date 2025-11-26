@@ -1,7 +1,8 @@
 /**
  * Firebase Cloud Functions for Cerebellar Extraction
  *
- * Includes Claude Native Citations API integration for verified source attribution.
+ * Includes Claude Native Citations API integration for verified
+ * source attribution.
  *
  * Optimizations applied per Firebase best practices:
  * - Global client caching to reduce cold start latency
@@ -70,7 +71,10 @@ interface ExtractResponse {
  * Callable function for Claude citation extraction
  * Uses onCall for automatic auth handling and type-safe serialization
  */
-export const extractCitations = onCall<ExtractRequest, Promise<ExtractResponse>>(
+export const extractCitations = onCall<
+  ExtractRequest,
+  Promise<ExtractResponse>
+>(
   {secrets: [anthropicApiKey]},
   async (request) => {
     const {pdfText, positions, extractionPrompt} = request.data;
@@ -95,7 +99,8 @@ export const extractCitations = onCall<ExtractRequest, Promise<ExtractResponse>>
       }
       const client = anthropicClient;
 
-      const prompt = extractionPrompt || `Extract data from this cerebellar stroke study. For EACH value, cite the exact source text.
+      const defaultPrompt = `Extract data from this cerebellar stroke study.
+For EACH value, cite the exact source text.
 
 Extract these fields:
 1. First author name
@@ -111,6 +116,7 @@ Extract these fields:
 11. Favorable mRS outcome
 
 Be precise - only include data explicitly stated.`;
+      const prompt = extractionPrompt || defaultPrompt;
 
       logger.info("Claude citation extraction", {
         textLength: pdfText.length,
@@ -162,7 +168,11 @@ Be precise - only include data explicitly stated.`;
                   .toString("utf-8");
 
                 // Map to PDF coordinates if positions provided
-                let page = 1, x = 0, y = 0, width = 100, height = 14;
+                let page = 1;
+                let x = 0;
+                let y = 0;
+                let width = 100;
+                let height = 14;
 
                 if (positions) {
                   for (const pos of positions) {
@@ -267,7 +277,8 @@ export const extractWithCitations = onRequest(
       }
       const client = anthropicClient;
 
-      const prompt = extractionPrompt || `Extract the following data from this cerebellar stroke study. For EACH value, cite the exact source text.
+      const httpDefaultPrompt = `Extract the following data from this study.
+For EACH value, cite the exact source text.
 
 Extract these fields:
 1. First author name
@@ -283,6 +294,7 @@ Extract these fields:
 11. Favorable mRS outcome rate
 
 Be precise - only include data explicitly stated in the text.`;
+      const prompt = extractionPrompt || httpDefaultPrompt;
 
       logger.info("Calling Claude with citations", {
         textLength: pdfText.length,
