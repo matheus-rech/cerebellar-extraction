@@ -17,6 +17,10 @@ npm run genkit critique <file> [--mode=AUTO|REVIEW]  # Validate extraction quali
 npm run genkit tables <file> [--json] [--analyze]   # Extract tables with Mistral OCR
 npm run genkit figures <file>                       # Extract figures/charts with Mistral OCR
 
+# Genkit Express Server (for frontend integration)
+npm run genkit serve 3400        # Start HTTP server on port 3400
+npm run genkit serve 3400 --cors # Start with CORS enabled (for cross-origin requests)
+
 # Build
 npm run build                    # Compile TypeScript
 
@@ -120,6 +124,44 @@ High-accuracy document understanding using Mistral's Document AI:
 - **Performance**: 96.12% table accuracy, 94.29% math comprehension
 - **Cost**: $0.001/page, Speed: 2,000 pages/minute
 - **Output**: Markdown with preserved structure + structured JSON
+
+**Genkit Express Server** (for frontend integration):
+
+The `serve` command starts an HTTP server using `@genkit-ai/express` that exposes Genkit flows as REST endpoints:
+
+```bash
+npm run genkit serve 3400         # Start server on port 3400
+npm run genkit serve 3400 --cors  # Enable CORS for cross-origin requests
+```
+
+**Available Endpoints**:
+
+- `POST /createChatSession` - Create new chat session
+- `POST /sendChatMessage` - Send message and get response
+- `POST /getChatHistory` - Get session history
+- `POST /listChatSessions` - List all sessions
+- `POST /deleteChatSession` - Delete a session
+- `POST /extractStudyData` - Extract structured data from PDF text
+- `POST /checkAndSaveStudy` - Save extracted study with validation
+- `POST /listStudies` - List all stored studies
+- `POST /searchSimilarStudies` - Semantic search across studies
+- `POST /evaluateExtraction` - Run quality evaluation
+- `POST /critiqueExtraction` - Run critique/reflector validation
+- `POST /quickCritique` - Real-time validation (for frontend)
+
+**Request Format** (Genkit Express convention):
+
+```javascript
+// Wrap input in "data" property
+const response = await fetch('http://localhost:3400/quickCritique', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ data: { extractedData: yourData } })
+});
+
+// Response is wrapped in "result" property
+const { result } = await response.json();
+```
 
 **Genkit Flows**:
 

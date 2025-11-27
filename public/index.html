@@ -589,39 +589,30 @@
 
       // --- QUICKCRITIQUE VALIDATION ---
       // Calls the Genkit quickCritique flow for real-time validation
+      // Uses direct endpoint format (Genkit Express server on port 3400)
       const runQuickCritique = async (dataToValidate) => {
         try {
-          // Try Genkit Reflection API (runs on port 3100 or 3101)
-          const genkitPorts = [3100, 3101];
-          let response = null;
+          // Genkit Express server runs on port 3400 with direct flow endpoints
+          const GENKIT_SERVER_URL = 'http://localhost:3400';
 
-          for (const port of genkitPorts) {
-            try {
-              const res = await fetch(`http://localhost:${port}/api/runAction`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  key: '/flow/quickCritique',
-                  input: { extractedData: dataToValidate }
-                })
-              });
-              if (res.ok) {
-                response = await res.json();
-                break;
-              }
-            } catch (e) {
-              // Try next port
-            }
-          }
+          const res = await fetch(`${GENKIT_SERVER_URL}/quickCritique`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // Genkit Express expects input wrapped in {data: ...}
+            body: JSON.stringify({ data: { extractedData: dataToValidate } })
+          });
 
-          if (!response) {
-            console.warn('QuickCritique: Genkit server not available');
+          if (!res.ok) {
+            console.warn('QuickCritique: Server returned', res.status);
             return null;
           }
 
+          // Genkit Express returns output wrapped in {result: ...}
+          const response = await res.json();
           return response.result;
         } catch (error) {
           console.error('QuickCritique error:', error);
+          console.warn('QuickCritique: Genkit server not available. Start with: npm run genkit serve 3400');
           return null;
         }
       };

@@ -38,20 +38,21 @@
     "@mistralai/mistralai": "^1.10.0",
     "dotenv": "^17.2.3",
     "firebase-admin": "^13.6.0",
+    "firebase-cli": "^1.2.0",
     "fuse.js": "^7.1.0",
     "genkit": "^1.24.0",
     "json2csv": "^6.0.0-alpha.2",
     "p-limit": "^7.2.0",
     "pdf-parse": "^2.4.5",
-    "pdfjs-dist": "^5.4.394",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "pdfjs-dist": "^5.4.394"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "@types/json2csv": "^5.0.7",
     "@types/node": "^24.10.1",
     "@types/pdf-parse": "^1.1.5",
-    "genkit-cli": "^1.24.0"
+    "genkit-cli": "^1.24.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   }
 }

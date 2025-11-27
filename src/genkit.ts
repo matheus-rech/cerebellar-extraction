@@ -15,7 +15,7 @@ import {createRequire} from "module";
 import {Parser} from "json2csv";
 import * as readline from "readline/promises";
 import {startFlowServer} from "@genkit-ai/express";
-import {critiqueExtraction, CritiqueReportSchema, CritiqueMode} from "./critics/index.js";
+import {critiqueExtraction, quickCritique, CritiqueReportSchema, CritiqueMode} from "./critics/index.js";
 import {
   createGroundTruth,
   annotateField,
@@ -2988,6 +2988,7 @@ What's the best next step for production use?`;
         // Evaluation flows
         evaluateExtraction,
         critiqueExtraction,
+        quickCritique,
       ],
     });
 
@@ -3003,6 +3004,7 @@ What's the best next step for production use?`;
     console.log(`   POST /searchSimilarStudies - Semantic search across studies`);
     console.log(`   POST /evaluateExtraction  - Run quality evaluation`);
     console.log(`   POST /critiqueExtraction  - Run critique/reflector validation`);
+    console.log(`   POST /quickCritique       - Real-time validation (for frontend)`);
     console.log(`\n✅ Server running at http://localhost:${port}`);
     console.log(`   Press Ctrl+C to stop\n`);
   } else if (command === "help") {
