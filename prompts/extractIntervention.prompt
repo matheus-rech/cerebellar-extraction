@@ -10,22 +10,22 @@ output:
   schema:
     procedure: string, Procedure name
     technique:
-      value: string?
-      sourceText: string?, Verbatim quote
-      pageNumber: integer?
+      value?: string
+      sourceText?: string, Verbatim quote
+      pageNumber?: integer
     evdUsed:
-      value: boolean?
-      sourceText: string?
-      pageNumber: integer?
+      value?: boolean
+      sourceText?: string
+      pageNumber?: integer
     duraplasty:
-      value: boolean?
-      sourceText: string?
-      pageNumber: integer?
+      value?: boolean
+      sourceText?: string
+      pageNumber?: integer
     timingToSurgery:
-      value: number?, Hours from onset
-      sourceText: string?
-      pageNumber: integer?
-    additionalDetails: string?
+      value?: number, Hours from onset
+      sourceText?: string
+      pageNumber?: integer
+    additionalDetails?: string
 ---
 {{role "system"}}
 You are a surgical technique specialist extracting intervention details from neurosurgical studies.

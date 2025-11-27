@@ -9,23 +9,23 @@ input:
 output:
   schema:
     mortality:
-      value: string?, Rate with timepoint
-      sourceText: string?
-      pageNumber: integer?
+      value?: string, Rate with timepoint
+      sourceText?: string
+      pageNumber?: integer
     mRS_favorable:
-      value: string?, Favorable outcome with definition
-      sourceText: string?
-      pageNumber: integer?
-    complications: string[], List of complications
+      value?: string, Favorable outcome with definition
+      sourceText?: string
+      pageNumber?: integer
+    complications(array): string
     lengthOfStay:
-      value: number?, Days
-      sourceText: string?
-      pageNumber: integer?
+      value?: number, Days
+      sourceText?: string
+      pageNumber?: integer
     allOutcomes:
       - measureName: string
         timepoint: string
         resultValue: string
-        definition: string?
+        definition?: string
         sourceText: string
 ---
 {{role "system"}}

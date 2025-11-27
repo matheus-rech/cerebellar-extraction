@@ -11,10 +11,10 @@ output:
     title: string
     firstAuthor: string
     publicationYear: integer
-    journal: string?
+    journal?: string
     hospitalCenter: string, Name of hospital/institution
     studyPeriod: string, Data collection dates (e.g., 'Jan 2010 - Dec 2020')
-    studyDesign: "string?, One of: Retrospective, Prospective, RCT, Case Series, Other"
+    studyDesign?: string
 ---
 {{role "system"}}
 You are a medical research data extractor specializing in cerebellar stroke surgery studies.

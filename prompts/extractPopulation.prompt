@@ -11,29 +11,29 @@ output:
     sampleSize: integer, Total SDC patients
     age:
       mean:
-        value: number?
-        sourceText: string?, Verbatim quote
-        pageNumber: integer?
+        value?: number
+        sourceText?: string, Verbatim quote
+        pageNumber?: integer
       sd:
-        value: number?
-        sourceText: string?
-        pageNumber: integer?
-      range: string?
+        value?: number
+        sourceText?: string
+        pageNumber?: integer
+      range?: string
     gcs:
       admissionMean:
-        value: number?
-        sourceText: string?
-        pageNumber: integer?
+        value?: number
+        sourceText?: string
+        pageNumber?: integer
       preOpMean:
-        value: number?
-        sourceText: string?
-        pageNumber: integer?
+        value?: number
+        sourceText?: string
+        pageNumber?: integer
     hydrocephalus:
-      value: number?, Percentage 0-100
-      sourceText: string?
-      pageNumber: integer?
+      value?: number, Percentage 0-100
+      sourceText?: string
+      pageNumber?: integer
     diagnosis: string, Primary diagnosis
-    inclusionCriteria: string[], List of criteria
+    inclusionCriteria(array): string
 ---
 {{role "system"}}
 You are a medical research data extractor specializing in patient demographics and population characteristics.

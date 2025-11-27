@@ -554,7 +554,10 @@ export const chat = ai.defineFlow(
 You have access to a Genkit-powered extraction system with Zod schemas for structured data extraction.
 Be helpful, precise, and provide code examples when relevant.`;
 
-    const {text} = await ai.generate(`${systemContext}\n\nUser: ${message}`);
+    const {text} = await ai.generate({
+      model: googleAI.model("gemini-2.5-flash"),
+      prompt: `${systemContext}\n\nUser: ${message}`,
+    });
     return {response: text};
   }
 );
