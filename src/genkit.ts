@@ -29,6 +29,19 @@ import {
   MistralOCRResultSchema,
   mapTableToSchemaFields,
 } from "./mistral-ocr.js";
+import {
+  semanticChunk,
+  chunkMedicalPaper,
+  chunkWithPages,
+  ChunkSchema,
+  ChunkingOptionsSchema,
+  PartialChunkingOptionsSchema,
+  type Chunk,
+  type ChunkingOptions,
+  type PartialChunkingOptions,
+  type PageText,
+  DEFAULT_CHUNKING_OPTIONS,
+} from "./chunking.js";
 const require = createRequire(import.meta.url);
 const {PDFParse} = require("pdf-parse");
 
@@ -1414,6 +1427,229 @@ export const searchSimilarStudies = ai.defineFlow(
         content: doc.text.slice(0, 500) + "...",
         metadata: doc.metadata || {},
       })),
+    };
+  }
+);
+
+// ==========================================
+// 4b. RAG Chunking for Large PDFs
+// ==========================================
+
+/**
+ * Chunk PDF text for RAG indexing
+ * Uses semantic chunking to preserve context while respecting token limits
+ */
+export const chunkPdfText = ai.defineFlow(
+  {
+    name: "chunkPdfText",
+    inputSchema: z.object({
+      text: z.string().describe("Full PDF text to chunk"),
+      strategy: z.enum(["semantic", "medical", "fixed"]).default("medical").describe("Chunking strategy"),
+      options: PartialChunkingOptionsSchema.optional().describe("Chunking options"),
+    }),
+    outputSchema: z.object({
+      chunks: z.array(ChunkSchema),
+      totalChunks: z.number(),
+      averageTokens: z.number(),
+      strategy: z.string(),
+    }),
+  },
+  async ({text, strategy = "medical", options = {}}) => {
+    let chunks: Chunk[];
+
+    switch (strategy) {
+      case "medical":
+        // Best for research papers - preserves section structure
+        chunks = chunkMedicalPaper(text, options);
+        break;
+      case "semantic":
+        // General-purpose semantic chunking
+        chunks = semanticChunk(text, options);
+        break;
+      case "fixed":
+        // Simple fixed-size chunking (fallback)
+        const maxTokens = options.maxChunkSize ?? 1500;
+        const overlap = options.overlap ?? 200;
+        const { fixedSizeChunk } = await import("./chunking.js");
+        chunks = fixedSizeChunk(text, maxTokens, overlap);
+        break;
+      default:
+        chunks = chunkMedicalPaper(text, options);
+    }
+
+    const totalTokens = chunks.reduce((sum, c) => sum + (c.metadata.tokenCount || 0), 0);
+    const averageTokens = chunks.length > 0 ? Math.round(totalTokens / chunks.length) : 0;
+
+    return {
+      chunks,
+      totalChunks: chunks.length,
+      averageTokens,
+      strategy,
+    };
+  }
+);
+
+/**
+ * Index PDF chunks into vector store for RAG
+ * Creates multiple documents from chunked PDF for better retrieval
+ */
+export const indexChunkedPdf = ai.defineFlow(
+  {
+    name: "indexChunkedPdf",
+    inputSchema: z.object({
+      pdfPath: z.string().describe("Path to PDF file"),
+      studyId: z.string().describe("Study identifier for the PDF"),
+      strategy: z.enum(["semantic", "medical", "fixed"]).default("medical"),
+      options: PartialChunkingOptionsSchema.optional(),
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      chunksIndexed: z.number(),
+      studyId: z.string(),
+      message: z.string(),
+    }),
+  },
+  async ({pdfPath, studyId, strategy = "medical", options = {}}) => {
+    try {
+      // 1. Read and parse PDF
+      console.log(`📄 Reading PDF: ${pdfPath}`);
+      const pdfBuffer = fs.readFileSync(pdfPath);
+      const parsed = await parsePdf(pdfBuffer);
+
+      // 2. Chunk the text
+      console.log(`✂️  Chunking with ${strategy} strategy...`);
+      const {chunks, totalChunks, averageTokens} = await chunkPdfText({
+        text: parsed.text,
+        strategy,
+        options,
+      });
+      console.log(`   Created ${totalChunks} chunks (avg ${averageTokens} tokens)`);
+
+      // 3. Create documents from chunks
+      const documents = chunks.map((chunk, idx) => {
+        return Document.fromText(chunk.text, {
+          id: `${studyId}_chunk_${idx}`,
+          studyId,
+          chunkIndex: idx,
+          totalChunks,
+          pageStart: chunk.metadata.pageStart,
+          pageEnd: chunk.metadata.pageEnd,
+          sectionType: chunk.metadata.sectionType || "unknown",
+          tokenCount: chunk.metadata.tokenCount,
+        });
+      });
+
+      // 4. Index all chunks
+      console.log(`📥 Indexing ${documents.length} chunks...`);
+      await ai.index({
+        indexer: "devLocalVectorstore/studyIndex",
+        documents,
+      });
+
+      return {
+        success: true,
+        chunksIndexed: documents.length,
+        studyId,
+        message: `Successfully indexed ${documents.length} chunks from ${pdfPath}`,
+      };
+    } catch (error) {
+      console.error("Chunked indexing failed:", error);
+      return {
+        success: false,
+        chunksIndexed: 0,
+        studyId,
+        message: `Failed to index: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+);
+
+/**
+ * Search with chunked retrieval and context aggregation
+ * Retrieves relevant chunks and aggregates context for better answers
+ */
+export const searchWithContext = ai.defineFlow(
+  {
+    name: "searchWithContext",
+    inputSchema: z.object({
+      query: z.string().describe("Search query"),
+      limit: z.number().default(10).describe("Maximum chunks to retrieve"),
+      aggregateByStudy: z.boolean().default(true).describe("Group results by study"),
+    }),
+    outputSchema: z.object({
+      results: z.array(z.object({
+        studyId: z.string(),
+        chunks: z.array(z.object({
+          text: z.string(),
+          sectionType: z.string(),
+          relevanceScore: z.number(),
+          pageRange: z.string(),
+        })),
+        combinedContext: z.string(),
+      })),
+      totalChunksRetrieved: z.number(),
+    }),
+  },
+  async ({query, limit = 10, aggregateByStudy = true}) => {
+    // Retrieve chunks
+    const docs = await ai.retrieve({
+      retriever: "devLocalVectorstore/studyIndex",
+      query,
+      options: {k: limit},
+    });
+
+    if (!aggregateByStudy) {
+      // Return flat list
+      return {
+        results: docs.map(doc => ({
+          studyId: doc.metadata?.studyId as string || "unknown",
+          chunks: [{
+            text: doc.text,
+            sectionType: doc.metadata?.sectionType as string || "unknown",
+            relevanceScore: doc.metadata?.score as number || 0,
+            pageRange: `${doc.metadata?.pageStart || "?"}-${doc.metadata?.pageEnd || "?"}`,
+          }],
+          combinedContext: doc.text,
+        })),
+        totalChunksRetrieved: docs.length,
+      };
+    }
+
+    // Group by study
+    const byStudy = new Map<string, typeof docs>();
+    for (const doc of docs) {
+      const studyId = doc.metadata?.studyId as string || "unknown";
+      if (!byStudy.has(studyId)) {
+        byStudy.set(studyId, []);
+      }
+      byStudy.get(studyId)!.push(doc);
+    }
+
+    // Build aggregated results
+    const results = Array.from(byStudy.entries()).map(([studyId, studyDocs]) => {
+      // Sort by chunk index if available
+      studyDocs.sort((a, b) => {
+        const idxA = a.metadata?.chunkIndex as number || 0;
+        const idxB = b.metadata?.chunkIndex as number || 0;
+        return idxA - idxB;
+      });
+
+      const chunks = studyDocs.map(doc => ({
+        text: doc.text.slice(0, 500) + (doc.text.length > 500 ? "..." : ""),
+        sectionType: doc.metadata?.sectionType as string || "unknown",
+        relevanceScore: doc.metadata?.score as number || 0,
+        pageRange: `${doc.metadata?.pageStart || "?"}-${doc.metadata?.pageEnd || "?"}`,
+      }));
+
+      // Combine context from all chunks (deduplicated)
+      const combinedContext = studyDocs.map(d => d.text).join("\n\n---\n\n");
+
+      return {studyId, chunks, combinedContext};
+    });
+
+    return {
+      results,
+      totalChunksRetrieved: docs.length,
     };
   }
 );
