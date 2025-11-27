@@ -1292,10 +1292,86 @@
       const [extractedTables, setExtractedTables] = useState([]);
       const [extractedFigures, setExtractedFigures] = useState([]);
 
+      // QuickCritique Validation State
+      const [validationErrors, setValidationErrors] = useState([]);
+      const [validationWarnings, setValidationWarnings] = useState([]);
+      const [isValidating, setIsValidating] = useState(false);
+      const [lastValidationTime, setLastValidationTime] = useState(null);
+      const validationTimeoutRef = React.useRef(null);
+
       const showToast = (message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
       };
+
+      // --- QUICKCRITIQUE VALIDATION ---
+      // Calls the Genkit quickCritique flow for real-time validation
+      const runQuickCritique = async (dataToValidate) => {
+        try {
+          // Try Genkit Reflection API (runs on port 3100 or 3101)
+          const genkitPorts = [3100, 3101];
+          let response = null;
+
+          for (const port of genkitPorts) {
+            try {
+              const res = await fetch(`http://localhost:${port}/api/runAction`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  key: '/flow/quickCritique',
+                  input: { extractedData: dataToValidate }
+                })
+              });
+              if (res.ok) {
+                response = await res.json();
+                break;
+              }
+            } catch (e) {
+              // Try next port
+            }
+          }
+
+          if (!response) {
+            console.warn('QuickCritique: Genkit server not available');
+            return null;
+          }
+
+          return response.result;
+        } catch (error) {
+          console.error('QuickCritique error:', error);
+          return null;
+        }
+      };
+
+      // Debounced validation - runs 1 second after user stops typing
+      const triggerValidation = React.useCallback((data) => {
+        // Clear any pending validation
+        if (validationTimeoutRef.current) {
+          clearTimeout(validationTimeoutRef.current);
+        }
+
+        // Schedule new validation
+        validationTimeoutRef.current = setTimeout(async () => {
+          setIsValidating(true);
+          try {
+            const result = await runQuickCritique(data);
+            if (result) {
+              setValidationErrors(result.errors || []);
+              setValidationWarnings(result.warnings || []);
+              setLastValidationTime(new Date().toLocaleTimeString());
+
+              // Show toast for critical errors
+              if (result.errors && result.errors.length > 0) {
+                showToast(`⚠️ ${result.errors.length} validation issue(s) found`, 'error');
+              }
+            }
+          } catch (e) {
+            console.error('Validation failed:', e);
+          } finally {
+            setIsValidating(false);
+          }
+        }, 1000); // 1 second debounce
+      }, []);
 
       // --- FIREBASE AUTH ---
       const signInWithGoogle = async () => {
@@ -1489,6 +1565,10 @@
           let current = next;
           for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
           current[keys[keys.length - 1]] = value;
+
+          // Trigger debounced validation after state update
+          triggerValidation(next);
+
           return next;
         });
 
@@ -1886,6 +1966,10 @@
                     setActiveCitation(cit);
                     if (cit.page) setPageNum(cit.page);
                   }}
+                  validationErrors={validationErrors}
+                  validationWarnings={validationWarnings}
+                  isValidating={isValidating}
+                  lastValidationTime={lastValidationTime}
                 />
               ) : activeTab === 'tables' ? (
                 <TablesInterface
@@ -2298,9 +2382,9 @@
       );
     }
 
-    function ExtractionForm({ data, highlights, pdfFile, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect }) {
+    function ExtractionForm({ data, highlights, pdfFile, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect, validationErrors = [], validationWarnings = [], isValidating = false, lastValidationTime = null }) {
       const currentPath = FIELD_MAP[currentField];
-      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false, analysis: false });
+      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false, analysis: false, validation: false });
       const toggle = (sec) => setCollapsed(prev => ({ ...prev, [sec]: !prev[sec] }));
 
       const Input = ({ label, path, type = "text", rows }) => {
@@ -2341,6 +2425,84 @@
 
       return (
         <div className="extraction-form-container">
+          {/* Real-time Validation Status Panel */}
+          {(validationErrors.length > 0 || validationWarnings.length > 0 || isValidating) && (
+            <div className="validation-panel" style={{
+              marginBottom: '15px',
+              padding: '12px 15px',
+              borderRadius: '6px',
+              background: validationErrors.length > 0 ? '#fff5f5' : validationWarnings.length > 0 ? '#fffaf0' : '#f0f9ff',
+              border: `1px solid ${validationErrors.length > 0 ? '#feb2b2' : validationWarnings.length > 0 ? '#fbd38d' : '#90cdf4'}`
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: validationErrors.length + validationWarnings.length > 0 ? '8px' : '0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isValidating ? (
+                    <>
+                      <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#3182ce' }}>Validating...</span>
+                    </>
+                  ) : validationErrors.length > 0 ? (
+                    <>
+                      <span>❌</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#c53030' }}>
+                        {validationErrors.length} Validation Error{validationErrors.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  ) : validationWarnings.length > 0 ? (
+                    <>
+                      <span>⚠️</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#c05621' }}>
+                        {validationWarnings.length} Warning{validationWarnings.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>✅</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#2f855a' }}>Validated</span>
+                    </>
+                  )}
+                </div>
+                {lastValidationTime && (
+                  <span style={{ fontSize: '10px', color: '#718096' }}>Last checked: {lastValidationTime}</span>
+                )}
+              </div>
+
+              {validationErrors.length > 0 && (
+                <div style={{ marginBottom: validationWarnings.length > 0 ? '8px' : '0' }}>
+                  {validationErrors.map((err, idx) => (
+                    <div key={idx} style={{
+                      fontSize: '11px',
+                      color: '#c53030',
+                      padding: '4px 8px',
+                      background: '#fed7d7',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      • {err}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {validationWarnings.length > 0 && (
+                <div>
+                  {validationWarnings.map((warn, idx) => (
+                    <div key={idx} style={{
+                      fontSize: '11px',
+                      color: '#c05621',
+                      padding: '4px 8px',
+                      background: '#feebc8',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      • {warn}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="form-section">
             <div className="section-header" onClick={() => toggle('meta')}>
               <div className="section-title">🆔 Study Identification</div>
