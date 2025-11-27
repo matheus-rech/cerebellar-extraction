@@ -11,8 +11,8 @@ import {
   HumanReviewRequestSchema,
   HumanReviewResponseSchema,
   HumanReviewResponse,
-} from "./schemas";
-import {runLayer1Critics} from "./layer1_math";
+} from "./schemas.js";
+import {runLayer1Critics} from "./layer1_math.js";
 import {
   scaleInversionSentinel,
   evdConfoundingDetector,
@@ -22,8 +22,8 @@ import {
   surgicalTechniqueClassifier,
   outcomeDefinitionVerifier,
   sourceCitationVerifier,
-} from "./layer2_logic";
-import {runLayer3Critics} from "./layer3_evidence";
+} from "./layer2_logic.js";
+import {runLayer3Critics} from "./layer3_evidence.js";
 
 // Initialize Genkit instance
 const ai = genkit({
@@ -440,13 +440,13 @@ export const quickCritique = ai.defineFlow(
 );
 
 // Export individual critics for testing or custom workflows
-export * from "./schemas";
-export * from "./layer1_math";
-export * from "./layer2_logic";
-export * from "./layer3_evidence";
+export * from "./schemas.js";
+export * from "./layer1_math.js";
+export * from "./layer2_logic.js";
+export * from "./layer3_evidence.js";
 
 // Export multi-agent system
-export * from "./multi_agent";
+export * from "./multi_agent.js";
 
 // Export the human review tool for use in calling applications
 // This allows external apps to handle the interrupt and provide human review responses

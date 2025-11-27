@@ -14,7 +14,7 @@ import {
   CritiqueIssue,
   CriticResultSchema,
   CriticResult,
-} from "./schemas";
+} from "./schemas.js";
 
 // Initialize Genkit instance
 const ai = genkit({

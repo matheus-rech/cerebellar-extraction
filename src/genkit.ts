@@ -3,7 +3,8 @@
 // Production-ready extraction system for SDC systematic review
 // Supports both local development (JSON files) and production (Firestore)
 
-import "dotenv/config";
+import * as dotenv from "dotenv";
+dotenv.config({ override: true }); // Override existing env vars (e.g., from shell)
 import {googleAI} from "@genkit-ai/googleai";
 import {genkit, z, Document} from "genkit";
 import {devLocalVectorstore} from "@genkit-ai/dev-local-vectorstore";

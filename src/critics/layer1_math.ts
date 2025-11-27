@@ -1,7 +1,7 @@
 // Layer 1 Critics: Deterministic Validators (Pure TypeScript, $0 cost, instant)
 // These critics perform mathematical and logical validation without LLM calls
 
-import {CritiqueIssue} from "./schemas";
+import {CritiqueIssue} from "./schemas.js";
 
 /**
  * Arithmetic Critic

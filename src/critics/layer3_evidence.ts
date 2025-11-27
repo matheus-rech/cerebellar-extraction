@@ -1,7 +1,7 @@
 // Layer 3 Critics: Evidence Verification (Heavy LLM + Context, moderate cost)
 // These critics perform deep verification against the original PDF text
 
-import {CritiqueIssue} from "./schemas";
+import {CritiqueIssue} from "./schemas.js";
 
 /**
  * Evidence Anchoring Checker

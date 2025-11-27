@@ -3,7 +3,7 @@
 
 import {genkit, z} from "genkit";
 import {googleAI} from "@genkit-ai/googleai";
-import {CriticResultSchema, CritiqueIssue} from "./schemas";
+import {CriticResultSchema, CritiqueIssue} from "./schemas.js";
 
 // Initialize Genkit instance for critics (reuse from main genkit.ts if possible)
 const ai = genkit({

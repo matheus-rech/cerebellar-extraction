@@ -16,12 +16,29 @@ import * as fs from "fs";
 import * as path from "path";
 
 // ==========================================
-// Mistral Client Initialization
+// Mistral Client Initialization (Lazy)
 // ==========================================
 
-const mistral = new Mistral({
-  apiKey: process.env.MISTRAL_API_KEY || "",
-});
+let _mistralClient: Mistral | null = null;
+
+/**
+ * Get the Mistral client (lazy initialization)
+ * This ensures dotenv has loaded before we read MISTRAL_API_KEY
+ */
+function getMistralClient(): Mistral {
+  if (!_mistralClient) {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error(
+        "MISTRAL_API_KEY not configured. Add it to .env file.\n" +
+        "Get your key from: https://console.mistral.ai/"
+      );
+    }
+    _mistralClient = new Mistral({
+      apiKey: process.env.MISTRAL_API_KEY,
+    });
+  }
+  return _mistralClient;
+}
 
 // ==========================================
 // Output Schemas
@@ -175,8 +192,38 @@ const FigureAnnotationSchema = {
 // ==========================================
 
 /**
+ * Upload a PDF file to Mistral and get a fileId
+ * Required for OCR on local files
+ */
+async function uploadPdfToMistral(pdfBuffer: Buffer, filename: string): Promise<string> {
+  const client = getMistralClient();
+
+  // Create a Blob from the buffer (convert to Uint8Array for type compatibility)
+  const uint8Array = new Uint8Array(pdfBuffer);
+  const blob = new Blob([uint8Array], { type: "application/pdf" });
+
+  // Upload the file
+  const uploadResponse = await client.files.upload({
+    file: {
+      fileName: filename,
+      content: blob,
+    },
+    purpose: "ocr" as any, // OCR purpose for document processing
+  });
+
+  if (!uploadResponse.id) {
+    throw new Error("Failed to upload file to Mistral - no fileId returned");
+  }
+
+  return uploadResponse.id;
+}
+
+/**
  * Process a PDF with Mistral OCR
  * Returns markdown with preserved structure + table/figure extraction
+ *
+ * For URLs: Uses DocumentURLChunk directly
+ * For local files/base64: Uploads file first, then uses FileChunk
  */
 export async function extractWithMistralOCR(
   input: { pdfPath?: string; pdfBase64?: string; pdfUrl?: string },
@@ -185,33 +232,46 @@ export async function extractWithMistralOCR(
   const startTime = Date.now();
   const { includeFigureAnalysis = true, includeTableParsing = true } = options;
 
-  // Prepare document input
-  let documentInput: { type: string; document_url?: string; document?: string };
+  const client = getMistralClient();
+  let documentInput: any;
+  let uploadedFileId: string | null = null;
 
   if (input.pdfUrl) {
+    // Use DocumentURLChunk for public URLs
     documentInput = {
       type: "document_url",
-      document_url: input.pdfUrl,
-    };
-  } else if (input.pdfBase64) {
-    documentInput = {
-      type: "base64",
-      document: input.pdfBase64,
-    };
-  } else if (input.pdfPath) {
-    const pdfBuffer = fs.readFileSync(input.pdfPath);
-    documentInput = {
-      type: "base64",
-      document: pdfBuffer.toString("base64"),
+      documentUrl: input.pdfUrl,
     };
   } else {
-    throw new Error("Must provide pdfPath, pdfBase64, or pdfUrl");
+    // For local files or base64, upload first and use FileChunk
+    let pdfBuffer: Buffer;
+    let filename: string;
+
+    if (input.pdfBase64) {
+      pdfBuffer = Buffer.from(input.pdfBase64, "base64");
+      filename = `document_${Date.now()}.pdf`;
+    } else if (input.pdfPath) {
+      pdfBuffer = fs.readFileSync(input.pdfPath);
+      filename = path.basename(input.pdfPath);
+    } else {
+      throw new Error("Must provide pdfPath, pdfBase64, or pdfUrl");
+    }
+
+    // Upload file to Mistral
+    console.log(`   📤 Uploading ${filename} to Mistral...`);
+    uploadedFileId = await uploadPdfToMistral(pdfBuffer, filename);
+    console.log(`   ✅ Upload complete (fileId: ${uploadedFileId.substring(0, 8)}...)`);
+
+    documentInput = {
+      type: "file",
+      fileId: uploadedFileId,
+    };
   }
 
   // Call Mistral OCR API
-  const ocrResponse = await mistral.ocr.process({
+  const ocrResponse = await client.ocr.process({
     model: "mistral-ocr-latest",
-    document: documentInput as any,
+    document: documentInput,
     includeImageBase64: includeFigureAnalysis,
   });
 
@@ -263,24 +323,43 @@ export async function extractFiguresWithMistral(input: {
   pdfBase64?: string;
   pdfUrl?: string;
 }): Promise<ExtractedFigure[]> {
-  // Prepare document input
-  let documentInput: { type: string; document_url?: string; document?: string };
+  const client = getMistralClient();
+  let documentInput: any;
 
   if (input.pdfUrl) {
-    documentInput = { type: "document_url", document_url: input.pdfUrl };
-  } else if (input.pdfBase64) {
-    documentInput = { type: "base64", document: input.pdfBase64 };
-  } else if (input.pdfPath) {
-    const pdfBuffer = fs.readFileSync(input.pdfPath);
-    documentInput = { type: "base64", document: pdfBuffer.toString("base64") };
+    // Use DocumentURLChunk for public URLs
+    documentInput = {
+      type: "document_url",
+      documentUrl: input.pdfUrl,
+    };
   } else {
-    throw new Error("Must provide pdfPath, pdfBase64, or pdfUrl");
+    // For local files or base64, upload first and use FileChunk
+    let pdfBuffer: Buffer;
+    let filename: string;
+
+    if (input.pdfBase64) {
+      pdfBuffer = Buffer.from(input.pdfBase64, "base64");
+      filename = `document_${Date.now()}.pdf`;
+    } else if (input.pdfPath) {
+      pdfBuffer = fs.readFileSync(input.pdfPath);
+      filename = path.basename(input.pdfPath);
+    } else {
+      throw new Error("Must provide pdfPath, pdfBase64, or pdfUrl");
+    }
+
+    // Upload file to Mistral
+    const uploadedFileId = await uploadPdfToMistral(pdfBuffer, filename);
+
+    documentInput = {
+      type: "file",
+      fileId: uploadedFileId,
+    };
   }
 
   // Call Mistral OCR with BBox annotations
-  const ocrResponse = await mistral.ocr.process({
+  const ocrResponse = await client.ocr.process({
     model: "mistral-ocr-latest",
-    document: documentInput as any,
+    document: documentInput,
     includeImageBase64: true,
     bboxAnnotationFormat: FigureAnnotationSchema as any,
   });
