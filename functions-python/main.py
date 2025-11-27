@@ -22,7 +22,8 @@ timeout_options = options.SupportedRegion.US_CENTRAL1
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST"])
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    invoker="public"  # Allow unauthenticated access
 )
 def extract_text_with_layout(req: https_fn.Request) -> https_fn.Response:
     """
@@ -89,7 +90,8 @@ def extract_text_with_layout(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST"])
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    invoker="public"  # Allow unauthenticated access
 )
 def extract_tables(req: https_fn.Request) -> https_fn.Response:
     """
@@ -149,7 +151,8 @@ def extract_tables(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.GB_1,
     timeout_sec=180,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST"])
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    invoker="public"  # Allow unauthenticated access
 )
 def extract_text_with_positions(req: https_fn.Request) -> https_fn.Response:
     """
@@ -226,7 +229,8 @@ def extract_text_with_positions(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=60,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST"])
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    invoker="public"  # Allow unauthenticated access
 )
 def detect_sections(req: https_fn.Request) -> https_fn.Response:
     """
@@ -321,7 +325,8 @@ def detect_sections(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST"])
+    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    invoker="public"  # Allow unauthenticated access
 )
 def extract_figures(req: https_fn.Request) -> https_fn.Response:
     """

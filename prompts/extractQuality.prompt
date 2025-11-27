@@ -1,0 +1,151 @@
+---
+model: googleai/gemini-3-pro-preview
+config:
+  temperature: 0.2
+  maxOutputTokens: 8192
+input:
+  schema:
+    pdfText: string, The raw PDF text content
+output:
+  schema:
+    selectionScore: integer, 0-4 stars
+    comparabilityScore: integer, 0-2 stars
+    outcomeScore: integer, 0-3 stars
+    totalScore: integer, 0-9 stars
+    qualityRating: string?, Low, Moderate, High
+    selection:
+      representativeness:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+      selectionOfNonExposed:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+      ascertainmentOfExposure:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+      outcomeNotPresentAtStart:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+    comparability:
+      controlForMostImportant:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+      controlForAdditional:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+    outcome:
+      assessmentOfOutcome:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+      followUpLength:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+      adequacyOfFollowUp:
+        item: string
+        score: integer
+        justification: string
+        sourceText: string?
+        pageNumber: integer?
+    biasNotes: string
+---
+{{role "system"}}
+You are a systematic review methodologist assessing study quality using the Newcastle-Ottawa Scale (NOS) for Cohort Studies.
+Score each of the 9 items individually with evidence from the paper.
+
+{{role "user"}}
+Assess study quality using the Newcastle-Ottawa Scale (NOS) for Cohort Studies.
+
+**SCORING INSTRUCTIONS:**
+For EACH item, provide:
+1. The relevant text quote (sourceText)
+2. Page number where found
+3. Score (0 or 1 star)
+4. Brief justification
+
+---
+
+## SELECTION DOMAIN (Max 4 stars)
+
+### S1. Representativeness of the Exposed Cohort
+- **1 star**: Truly representative (consecutive patients, population-based)
+- **0 stars**: Selected group, volunteers, or not described
+
+### S2. Selection of the Non-Exposed Cohort
+- **1 star**: Drawn from same community as exposed
+- **0 stars**: Different source, or no non-exposed group
+
+### S3. Ascertainment of Exposure (SDC Surgery)
+- **1 star**: Secure record (surgical records, medical charts)
+- **0 stars**: Written self-report or no description
+
+### S4. Outcome Not Present at Start
+- **1 star**: Yes, all patients alive at enrollment
+- **0 stars**: Not demonstrated
+
+---
+
+## COMPARABILITY DOMAIN (Max 2 stars)
+
+### C1. Comparability - Most Important Factor
+- **1 star**: Study controls for age, GCS, or similar critical factor
+- **0 stars**: No control for confounders
+
+### C2. Comparability - Additional Factor
+- **1 star**: Controls for additional factor (comorbidities, etiology)
+- **0 stars**: Does not control for additional factors
+
+---
+
+## OUTCOME DOMAIN (Max 3 stars)
+
+### O1. Assessment of Outcome
+- **1 star**: Independent blind assessment or record linkage
+- **0 stars**: Self-report or no description
+
+### O2. Follow-up Length
+- **1 star**: Sufficient for outcome (typically >= 30 days for mortality)
+- **0 stars**: Too short or not stated
+
+### O3. Adequacy of Follow-up
+- **1 star**: Complete follow-up or dropout described with <=20% lost
+- **0 stars**: >20% lost or dropout not described
+
+---
+
+## QUALITY RATING
+- **High**: 7-9 stars
+- **Moderate**: 4-6 stars
+- **Low**: 0-3 stars
+
+**IMPORTANT:** Scores MUST be mathematically consistent:
+- selectionScore = S1 + S2 + S3 + S4 (max 4)
+- comparabilityScore = C1 + C2 (max 2)
+- outcomeScore = O1 + O2 + O3 (max 3)
+- totalScore = selectionScore + comparabilityScore + outcomeScore (max 9)
+
+**STUDY TEXT:**
+{{pdfText}}

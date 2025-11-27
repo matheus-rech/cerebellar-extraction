@@ -24,6 +24,9 @@
   <!-- Babel for JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- Fuzzysort for fuzzy text matching (citation jumps) -->
+  <script src="https://unpkg.com/fuzzysort@3.0.2/fuzzysort.min.js"></script>
+
   <style>
     /* Reset and base styles */
     * {
@@ -267,6 +270,102 @@
       box-shadow: 0 0 8px rgba(138, 43, 226, 0.5);
     }
 
+    /* Citation jump highlight - starts yellow, transitions to persistent border */
+    .citation-jump-highlight {
+      position: absolute;
+      background: rgba(255, 235, 59, 0.6);
+      border: 2px solid #FFC107;
+      border-radius: 3px;
+      pointer-events: auto;
+      cursor: pointer;
+      animation: citation-pulse 0.5s ease-in-out 3;
+      transition: background 0.5s ease, border-color 0.5s ease;
+    }
+
+    .citation-jump-highlight.persistent {
+      background: rgba(255, 235, 59, 0.15);
+      border: 2px dashed #FF9800;
+      animation: none;
+    }
+
+    .citation-jump-highlight:hover {
+      background: rgba(255, 235, 59, 0.4);
+      border-style: solid;
+      z-index: 100;
+    }
+
+    @keyframes citation-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.02); }
+    }
+
+    /* Citation highlight tooltip */
+    .citation-tooltip {
+      position: absolute;
+      bottom: calc(100% + 5px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    .citation-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #333;
+    }
+
+    .citation-jump-highlight:hover .citation-tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* Citation button in form fields */
+    .btn-citation {
+      background: transparent;
+      border: none;
+      padding: 4px 6px;
+      cursor: pointer;
+      color: #6c757d;
+      transition: all 0.2s;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .btn-citation:hover {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .btn-citation:active {
+      transform: scale(0.95);
+    }
+
+    .btn-citation.has-citation {
+      color: #4CAF50;
+    }
+
+    .btn-citation.has-citation:hover {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
     /* Citation panel styles */
     .citation-panel {
       background: #f8f4ff;
@@ -447,6 +546,202 @@
     .btn-ai-magic:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 8px rgba(142, 68, 173, 0.4);
+    }
+
+    /* VerifiableField Component - Human-in-the-Loop Review */
+    .verifiable-field {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .verifiable-field:hover {
+      border-color: var(--primary);
+      box-shadow: 0 2px 8px rgba(52, 152, 219, 0.1);
+    }
+
+    .verifiable-field.verified {
+      border-color: var(--success);
+      background: #f0fff4;
+    }
+
+    .verifiable-field.flagged {
+      border-color: var(--accent);
+      background: #fff9e6;
+    }
+
+    .verifiable-field-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .verifiable-field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #7f8c8d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .verifiable-field-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 8px;
+    }
+
+    .verifiable-field-source {
+      background: #f8f9fa;
+      border-left: 3px solid var(--ai-color);
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #555;
+      font-style: italic;
+      border-radius: 0 4px 4px 0;
+      margin-bottom: 8px;
+    }
+
+    .verifiable-field-source::before {
+      content: '"';
+    }
+
+    .verifiable-field-source::after {
+      content: '"';
+    }
+
+    .verifiable-field-page {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: var(--bg-grey);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      color: #666;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .verifiable-field-page:hover {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    .verifiable-field-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .verify-btn {
+      padding: 4px 10px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+
+    .verify-btn.approve {
+      background: #e8f5e9;
+      color: #27ae60;
+      border: 1px solid #27ae60;
+    }
+
+    .verify-btn.approve:hover {
+      background: #27ae60;
+      color: white;
+    }
+
+    .verify-btn.flag {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffc107;
+    }
+
+    .verify-btn.flag:hover {
+      background: #ffc107;
+      color: #333;
+    }
+
+    /* Review Panel */
+    .review-panel {
+      padding: 20px;
+      overflow-y: auto;
+      height: 100%;
+    }
+
+    .review-header {
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .review-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #2c3e50;
+      margin-bottom: 4px;
+    }
+
+    .review-meta {
+      font-size: 13px;
+      color: #7f8c8d;
+    }
+
+    .review-section {
+      margin-bottom: 24px;
+    }
+
+    .review-section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--secondary);
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--primary);
+      display: inline-block;
+    }
+
+    .review-progress {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .review-progress-bar {
+      flex: 1;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .review-progress-fill {
+      height: 100%;
+      background: white;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .review-progress-text {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
     }
 
     .btn-ai-magic:active {
@@ -1263,6 +1558,104 @@
           }
         },
         study_design: { type: "STRING" },
+        // Dynamic field types for detailed extraction
+        studyArms: {
+          type: "ARRAY",
+          description: "Treatment groups or cohorts in the study",
+          items: {
+            type: "OBJECT",
+            properties: {
+              label: { type: "STRING", description: "Arm name (e.g., 'SDC', 'Control')" },
+              sampleSize: { type: "STRING", description: "Number of patients in this arm" }
+            }
+          }
+        },
+        indications: {
+          type: "ARRAY",
+          description: "Surgical indications for the procedure",
+          items: {
+            type: "OBJECT",
+            properties: {
+              sign: { type: "STRING", description: "Clinical indication or symptom" },
+              count: { type: "STRING", description: "Number or frequency of patients with this indication" }
+            }
+          }
+        },
+        interventions: {
+          type: "ARRAY",
+          description: "Surgical techniques or procedures performed",
+          items: {
+            type: "OBJECT",
+            properties: {
+              type: { type: "STRING", description: "Type of surgical technique" },
+              timeToSurgery: { type: "STRING", description: "Time from admission/diagnosis to surgery" },
+              duraplasty: { type: "STRING", description: "Duraplasty used: 'yes', 'no', or 'null'" }
+            }
+          }
+        },
+        mortalities: {
+          type: "ARRAY",
+          description: "Mortality data by study arm and timepoint",
+          items: {
+            type: "OBJECT",
+            properties: {
+              arm: { type: "STRING", description: "Study arm label" },
+              timepoint: { type: "STRING", description: "When mortality was measured (e.g., '30-day', 'in-hospital')" },
+              deaths: { type: "STRING", description: "Number of deaths" },
+              total: { type: "STRING", description: "Total patients at risk" }
+            }
+          }
+        },
+        mrsScores: {
+          type: "ARRAY",
+          description: "Modified Rankin Scale score distributions by arm",
+          items: {
+            type: "OBJECT",
+            properties: {
+              arm: { type: "STRING", description: "Study arm label" },
+              timepoint: { type: "STRING", description: "When mRS was assessed" },
+              scores: {
+                type: "OBJECT",
+                description: "Count of patients at each mRS score (0-6)",
+                properties: {
+                  "0": { type: "STRING" },
+                  "1": { type: "STRING" },
+                  "2": { type: "STRING" },
+                  "3": { type: "STRING" },
+                  "4": { type: "STRING" },
+                  "5": { type: "STRING" },
+                  "6": { type: "STRING" }
+                }
+              }
+            }
+          }
+        },
+        complications: {
+          type: "ARRAY",
+          description: "Adverse events or complications by study arm",
+          items: {
+            type: "OBJECT",
+            properties: {
+              description: { type: "STRING", description: "Type of complication" },
+              arm: { type: "STRING", description: "Study arm label" },
+              count: { type: "STRING", description: "Number of occurrences" }
+            }
+          }
+        },
+        predictors: {
+          type: "ARRAY",
+          description: "Statistical predictors of outcomes (OR, HR, RR with confidence intervals)",
+          items: {
+            type: "OBJECT",
+            properties: {
+              variable: { type: "STRING", description: "Predictor variable name" },
+              effectSize: { type: "STRING", description: "Effect size (OR, HR, RR)" },
+              ciLower: { type: "STRING", description: "Lower bound of 95% CI" },
+              ciUpper: { type: "STRING", description: "Upper bound of 95% CI" },
+              pValue: { type: "STRING", description: "P-value" }
+            }
+          }
+        }
       }
     };
 
@@ -1924,17 +2317,80 @@
 
         setIsExtracting(true);
         try {
-          // TODO: Implement actual table extraction using Cloud Functions
-          // For now, show placeholder
-          setTimeout(() => {
-            setTables([
-              { id: 1, pageNum: 3, rows: 5, cols: 4, preview: 'Table 1: Patient Demographics' },
-              { id: 2, pageNum: 5, rows: 8, cols: 3, preview: 'Table 2: Surgical Outcomes' }
-            ]);
-            setIsExtracting(false);
-          }, 1500);
+          // Convert PDF file to base64
+          const reader = new FileReader();
+          const pdfBase64 = await new Promise((resolve, reject) => {
+            reader.onload = () => {
+              // Extract base64 data (remove data:application/pdf;base64, prefix)
+              const base64String = reader.result.split(',')[1];
+              resolve(base64String);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(pdfFile);
+          });
+
+          // Try local server first (development), then Cloud Run
+          const urls = [
+            'http://localhost:5003/extract_tables',  // Local development server
+            'https://extract-tables-5amidalpvq-uc.a.run.app'  // Cloud Run (requires IAM setup)
+          ];
+
+          let result = null;
+          let lastError = null;
+
+          for (const functionUrl of urls) {
+            try {
+              console.log('[extractTables] Trying:', functionUrl);
+              const response = await fetch(functionUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ pdf_base64: pdfBase64 })
+              });
+
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+
+              result = await response.json();
+              console.log('[extractTables] Success from:', functionUrl);
+              break;  // Success, exit loop
+            } catch (err) {
+              console.log('[extractTables] Failed:', functionUrl, err.message);
+              lastError = err;
+            }
+          }
+
+          if (!result) {
+            throw lastError || new Error('All extraction endpoints failed');
+          }
+
+          if (result.success && result.tables) {
+            // Transform extracted tables to include display data
+            const transformedTables = result.tables.map((table, index) => ({
+              id: index,
+              page: table.page,
+              table_index: table.table_index,
+              headers: table.headers || [],
+              rows: table.rows || [],
+              raw: table.raw || [],
+              rowCount: table.rows ? table.rows.length : 0,
+              colCount: table.headers ? table.headers.length : 0
+            }));
+            setTables(transformedTables);
+            // Expose tables for section-priority extraction
+            window._extractedTables = transformedTables;
+          } else {
+            alert('No tables found in the PDF');
+            setTables([]);
+            window._extractedTables = [];
+          }
         } catch (error) {
           console.error('Table extraction failed:', error);
+          alert(`Failed to extract tables: ${error.message}`);
+          setTables([]);
+        } finally {
           setIsExtracting(false);
         }
       };
@@ -1979,25 +2435,91 @@
                   border: '1px solid #dee2e6',
                   borderRadius: '8px',
                   padding: '16px',
-                  marginBottom: '16px'
+                  marginBottom: '24px'
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <div>
-                      <h4 style={{ margin: '0 0 8px 0' }}>{table.preview}</h4>
+                      <h4 style={{ margin: '0 0 8px 0' }}>
+                        Table {table.table_index + 1} (Page {table.page})
+                      </h4>
                       <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
-                        Page {table.pageNum} • {table.rows} rows × {table.cols} columns
+                        {table.rowCount} rows × {table.colCount} columns
                       </p>
                     </div>
-                    <button style={{
-                      padding: '8px 16px',
-                      background: '#007bff',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
-                    }}>
-                      Export CSV
+                    <button
+                      onClick={() => {
+                        // Convert table to CSV
+                        const csvContent = [
+                          table.headers.join(','),
+                          ...table.rows.map(row => row.map(cell => `"${cell}"`).join(','))
+                        ].join('\n');
+
+                        // Create download link
+                        const blob = new Blob([csvContent], { type: 'text/csv' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `table_page${table.page}_${table.table_index + 1}.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#007bff',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 500
+                      }}
+                    >
+                      📥 Export CSV
                     </button>
+                  </div>
+
+                  {/* Render actual table data */}
+                  <div style={{ overflowX: 'auto', marginTop: '12px' }}>
+                    <table style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: '14px',
+                      background: 'white'
+                    }}>
+                      <thead>
+                        <tr style={{ background: '#e9ecef' }}>
+                          {table.headers.map((header, i) => (
+                            <th key={i} style={{
+                              padding: '10px',
+                              border: '1px solid #dee2e6',
+                              textAlign: 'left',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {header || `Column ${i + 1}`}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {table.rows.map((row, rowIndex) => (
+                          <tr key={rowIndex} style={{
+                            background: rowIndex % 2 === 0 ? 'white' : '#f8f9fa'
+                          }}>
+                            {row.map((cell, cellIndex) => (
+                              <td key={cellIndex} style={{
+                                padding: '8px 10px',
+                                border: '1px solid #dee2e6',
+                                whiteSpace: 'pre-wrap'
+                              }}>
+                                {cell || '—'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ))}
@@ -2027,50 +2549,211 @@
     const FiguresPanel = ({ pdfDoc, pdfFile }) => {
       const [figures, setFigures] = useState([]);
       const [isExtracting, setIsExtracting] = useState(false);
+      const [transcriptions, setTranscriptions] = useState({}); // {figureId: "transcribed text"}
+      const [transcribingId, setTranscribingId] = useState(null);
+
+      // OCR: Transcribe a figure using Gemini Vision
+      const transcribeFigure = async (figure) => {
+        if (!figure.imageData) {
+          alert('No image data available');
+          return;
+        }
+
+        setTranscribingId(figure.id);
+        try {
+          // Extract base64 data (remove data:image/png;base64, prefix)
+          const base64Data = figure.imageData.split(',')[1];
+
+          // Call Gemini with vision capability
+          const prompt = `Analyze this image from a medical research paper. Extract ALL text, numbers, and data visible in the image. If it's a table, preserve the structure. If it's a chart/graph, describe the data points and trends. Be thorough and precise.
+
+Focus on:
+1. All visible text (labels, titles, captions)
+2. All numerical values
+3. Table data (if present) - preserve row/column structure
+4. Statistical information (p-values, confidence intervals, percentages)
+5. Any figure/table numbering or references`;
+
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    {
+                      inline_data: {
+                        mime_type: 'image/png',
+                        data: base64Data
+                      }
+                    }
+                  ]
+                }]
+              })
+            }
+          );
+
+          const result = await response.json();
+          const transcribedText = result.candidates?.[0]?.content?.parts?.[0]?.text || 'No text extracted';
+
+          // Store transcription
+          const newTranscriptions = {
+            ...transcriptions,
+            [figure.id]: transcribedText
+          };
+          setTranscriptions(newTranscriptions);
+          // Expose figure transcriptions for section-priority extraction
+          window._figureTranscriptions = newTranscriptions;
+
+          // Also update the figure object
+          setFigures(prev => prev.map(f =>
+            f.id === figure.id ? { ...f, transcription: transcribedText } : f
+          ));
+
+        } catch (error) {
+          console.error('Figure transcription failed:', error);
+          alert('Failed to transcribe figure: ' + error.message);
+        } finally {
+          setTranscribingId(null);
+        }
+      };
 
       const extractFigures = async () => {
-        if (!pdfDoc) {
+        if (!pdfFile) {
           alert('Please upload a PDF first');
           return;
         }
 
         setIsExtracting(true);
         try {
-          const extractedFigures = [];
+          // Convert PDF file to base64
+          const reader = new FileReader();
+          const pdfBase64 = await new Promise((resolve, reject) => {
+            reader.onload = () => {
+              const base64String = reader.result.split(',')[1];
+              resolve(base64String);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(pdfFile);
+          });
 
-          // Render each page as an image
-          for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-            const page = await pdfDoc.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 1.5 });
+          // Try local server first (development), then Cloud Run
+          const urls = [
+            'http://localhost:5003/extract_figures',  // Local development server
+            'https://extract-figures-5amidalpvq-uc.a.run.app'  // Cloud Run (requires IAM setup)
+          ];
 
-            // Create canvas for rendering
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
+          let result = null;
+          let lastError = null;
 
-            // Render page to canvas
-            await page.render({
-              canvasContext: context,
-              viewport: viewport
-            }).promise;
+          for (const functionUrl of urls) {
+            try {
+              console.log('[extractFigures] Trying:', functionUrl);
+              const response = await fetch(functionUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ pdf_base64: pdfBase64 })
+              });
 
-            // Convert canvas to data URL
-            const imageDataUrl = canvas.toDataURL('image/png');
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
 
-            extractedFigures.push({
-              id: pageNum,
-              pageNum: pageNum,
-              type: 'Page Snapshot',
-              caption: `Page ${pageNum}`,
-              imageData: imageDataUrl
-            });
+              result = await response.json();
+              console.log('[extractFigures] Success from:', functionUrl);
+              break;  // Success, exit loop
+            } catch (err) {
+              console.log('[extractFigures] Failed:', functionUrl, err.message);
+              lastError = err;
+            }
           }
 
-          setFigures(extractedFigures);
+          // If no result from either endpoint, throw the error (will trigger fallback)
+          if (!result) {
+            throw lastError || new Error('All extraction endpoints failed');
+          }
+
+          if (result.success && result.figures && result.figures.length > 0) {
+            // Transform extracted figures to display format
+            const extractedFigures = result.figures.map((fig, index) => ({
+              id: index + 1,
+              pageNum: fig.page,
+              type: 'Extracted Image',
+              caption: `Figure from Page ${fig.page}`,
+              imageData: `data:image/png;base64,${fig.image_base64}`,
+              bbox: fig.bbox,
+              width: fig.width,
+              height: fig.height
+            }));
+            setFigures(extractedFigures);
+            console.log(`[extractFigures] Found ${extractedFigures.length} actual figures`);
+          } else {
+            // Fallback: If no embedded images found, render pages as snapshots
+            console.log('[extractFigures] No embedded figures found, using page snapshots as fallback');
+            const extractedFigures = [];
+
+            for (let pageNum = 1; pageNum <= Math.min(pdfDoc.numPages, 10); pageNum++) {
+              const page = await pdfDoc.getPage(pageNum);
+              const viewport = page.getViewport({ scale: 1.5 });
+
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+
+              await page.render({
+                canvasContext: context,
+                viewport: viewport
+              }).promise;
+
+              extractedFigures.push({
+                id: pageNum,
+                pageNum: pageNum,
+                type: 'Page Snapshot',
+                caption: `Page ${pageNum} (no embedded figures found)`,
+                imageData: canvas.toDataURL('image/png')
+              });
+            }
+
+            setFigures(extractedFigures);
+          }
         } catch (error) {
-          console.error('Figure extraction failed:', error);
-          alert('Figure extraction failed. See console for details.');
+          console.error('[extractFigures] Cloud Function failed:', error);
+          // Fallback to page snapshots on error
+          console.log('[extractFigures] Falling back to page snapshots...');
+          try {
+            const extractedFigures = [];
+            for (let pageNum = 1; pageNum <= Math.min(pdfDoc.numPages, 10); pageNum++) {
+              const page = await pdfDoc.getPage(pageNum);
+              const viewport = page.getViewport({ scale: 1.5 });
+
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+
+              await page.render({
+                canvasContext: context,
+                viewport: viewport
+              }).promise;
+
+              extractedFigures.push({
+                id: pageNum,
+                pageNum: pageNum,
+                type: 'Page Snapshot (fallback)',
+                caption: `Page ${pageNum}`,
+                imageData: canvas.toDataURL('image/png')
+              });
+            }
+            setFigures(extractedFigures);
+          } catch (fallbackError) {
+            console.error('[extractFigures] Fallback also failed:', fallbackError);
+            alert('Figure extraction failed. See console for details.');
+          }
         } finally {
           setIsExtracting(false);
         }
@@ -2120,32 +2803,90 @@
                   }}>
                     <div style={{
                       width: '100%',
-                      height: '180px',
+                      maxHeight: '300px',
                       background: '#e9ecef',
                       borderRadius: '4px',
                       marginBottom: '12px',
+                      overflow: 'hidden',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#6c757d'
+                      justifyContent: 'center'
                     }}>
-                      📊 {figure.type}
+                      {figure.imageData ? (
+                        <img
+                          src={figure.imageData}
+                          alt={figure.caption}
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '300px',
+                            objectFit: 'contain'
+                          }}
+                        />
+                      ) : (
+                        <span style={{ color: '#6c757d' }}>📊 {figure.type}</span>
+                      )}
                     </div>
                     <p style={{ fontWeight: 600, margin: '0 0 4px 0' }}>{figure.caption}</p>
                     <p style={{ color: '#666', fontSize: '14px', margin: '0 0 12px 0' }}>
                       Page {figure.pageNum}
                     </p>
-                    <button style={{
-                      padding: '8px 16px',
-                      background: '#9C27B0',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      width: '100%'
-                    }}>
-                      Export Image
-                    </button>
+
+                    {/* Button group */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                      <button
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.download = `page_${figure.pageNum}.png`;
+                          link.href = figure.imageData;
+                          link.click();
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          background: '#9C27B0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          flex: 1,
+                          fontSize: '13px'
+                        }}>
+                        📥 Export
+                      </button>
+                      <button
+                        onClick={() => transcribeFigure(figure)}
+                        disabled={transcribingId === figure.id}
+                        style={{
+                          padding: '8px 12px',
+                          background: transcribingId === figure.id ? '#ccc' : '#FF9800',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: transcribingId === figure.id ? 'not-allowed' : 'pointer',
+                          flex: 1,
+                          fontSize: '13px'
+                        }}>
+                        {transcribingId === figure.id ? '⏳ Processing...' : '🔍 OCR Transcribe'}
+                      </button>
+                    </div>
+
+                    {/* Transcription display */}
+                    {(figure.transcription || transcriptions[figure.id]) && (
+                      <div style={{
+                        background: '#fff8e1',
+                        border: '1px solid #ffcc02',
+                        borderRadius: '4px',
+                        padding: '10px',
+                        fontSize: '12px',
+                        maxHeight: '150px',
+                        overflowY: 'auto',
+                        whiteSpace: 'pre-wrap'
+                      }}>
+                        <strong style={{ color: '#FF9800', display: 'block', marginBottom: '6px' }}>
+                          📝 Transcription:
+                        </strong>
+                        {figure.transcription || transcriptions[figure.id]}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -2177,6 +2918,31 @@
       const [numPages, setNumPages] = useState(0);
       const [pageOneText, setPageOneText] = useState('');
 
+      // Available PDFs from server
+      const [availablePdfs, setAvailablePdfs] = useState([]);
+
+      // Load PDF manifest on mount
+      useEffect(() => {
+        fetch('/pdf/pdfs.json')
+          .then(res => res.json())
+          .then(data => setAvailablePdfs(data.pdfs || []))
+          .catch(err => console.log('No PDF manifest found:', err));
+      }, []);
+
+      // Load PDF from server by filename
+      const loadPdfFromServer = async (filename) => {
+        if (!filename) return;
+        try {
+          const response = await fetch(`/pdf/${filename}`);
+          const blob = await response.blob();
+          const file = new File([blob], filename, { type: 'application/pdf' });
+          handleFileUpload(file);
+        } catch (err) {
+          console.error('Failed to load PDF:', err);
+          showToast('Failed to load PDF from server', 'error');
+        }
+      };
+
       // Extraction State
       const [highlights, setHighlights] = useState([]);
       const [currentField, setCurrentField] = useState('');
@@ -2205,8 +2971,13 @@
       // UI State
       const [toast, setToast] = useState(null);
       const [isLoading, setIsLoading] = useState(false);
-      const [activeTab, setActiveTab] = useState('extract'); // 'extract', 'chat', or 'detailed'
+      const [activeTab, setActiveTab] = useState('extract'); // 'extract', 'chat', 'review', or 'detailed'
       const [chatMessages, setChatMessages] = useState([]); // Array of {role, text}
+
+      // Review Panel State (Human-in-the-Loop AI verification)
+      const [aiExtractedData, setAiExtractedData] = useState(null); // Data from Genkit extraction
+      const [verifiedFields, setVerifiedFields] = useState({}); // { fieldPath: 'verified' | 'flagged' }
+      const [isExtracting, setIsExtracting] = useState(false);
 
       // Detailed Extraction State (7 dynamic field types)
       const [indications, setIndications] = useState([]);
@@ -2384,6 +3155,158 @@
         }
       };
 
+      // --- CITATION JUMP FEATURE ---
+      // State for persistent citation highlights (separate from manual highlights)
+      const [citationMarkers, setCitationMarkers] = useState([]);
+
+      // Jump to citation in PDF and highlight the source text
+      // fieldName: optional label to show in tooltip (e.g., "Mortality Rate", "Sample Size")
+      const jumpToCitation = async (sourceText, fieldName = null) => {
+        console.log('[jumpToCitation] Called with:', { sourceText, fieldName, hasPdfDoc: !!pdfDoc });
+
+        if (!pdfDoc || !sourceText) {
+          showToast("No PDF loaded or no source text", "error");
+          return;
+        }
+
+        // Clean the search text
+        const searchText = sourceText.trim().substring(0, 100); // Use first 100 chars
+        console.log('[jumpToCitation] Searching for:', searchText);
+
+        try {
+          // Search through all pages for the text
+          for (let pageIdx = 1; pageIdx <= pdfDoc.numPages; pageIdx++) {
+            const page = await pdfDoc.getPage(pageIdx);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+
+            // Log first page for debugging
+            if (pageIdx === 1) {
+              console.log('[jumpToCitation] Page 1 text (first 200):', pageText.substring(0, 200));
+            }
+
+            // Use fuzzysort if available, otherwise simple includes
+            let found = false;
+            let matchScore = 0;
+
+            if (window.fuzzysort) {
+              const result = fuzzysort.single(searchText, pageText);
+              console.log('[jumpToCitation] Fuzzysort result for page', pageIdx, ':', result?.score);
+              if (result && result.score > -50000) { // Reasonable match threshold
+                found = true;
+                matchScore = result.score;
+              }
+            } else {
+              // Fallback to simple substring match
+              found = pageText.toLowerCase().includes(searchText.toLowerCase().substring(0, 50));
+              console.log('[jumpToCitation] Simple search for page', pageIdx, ':', found);
+            }
+
+            if (found) {
+              // Jump to the page
+              setPageNum(pageIdx);
+              console.log('[jumpToCitation] Found on page', pageIdx, '- searching for item position...');
+
+              // Find approximate position of the text
+              let foundItem = null;
+              let foundIndex = -1;
+              const searchLower = searchText.toLowerCase();
+
+              // Try exact match first, then progressively shorter substrings
+              const searchTerms = [
+                searchLower.substring(0, 20),
+                searchLower.substring(0, 10),
+                searchLower.substring(0, 6),
+                searchLower.split(' ')[0] // First word
+              ].filter(s => s.length >= 3);
+
+              for (const term of searchTerms) {
+                for (let i = 0; i < textContent.items.length; i++) {
+                  const item = textContent.items[i];
+                  if (item.str.toLowerCase().includes(term)) {
+                    foundItem = item;
+                    foundIndex = i;
+                    console.log('[jumpToCitation] Found item:', item.str, 'using term:', term);
+                    break;
+                  }
+                }
+                if (foundItem) break;
+              }
+
+              // If still not found, use first item with transform as fallback
+              if (!foundItem) {
+                for (let i = 0; i < textContent.items.length; i++) {
+                  if (textContent.items[i].transform) {
+                    foundItem = textContent.items[i];
+                    foundIndex = i;
+                    console.log('[jumpToCitation] Using fallback item:', foundItem.str);
+                    break;
+                  }
+                }
+              }
+
+              if (foundItem && foundItem.transform) {
+                // Create persistent highlight with tooltip info
+                const viewport = page.getViewport({ scale: 1.5 });
+                const [,, , , tx, ty] = foundItem.transform;
+                const highlightId = Date.now();
+
+                const citationHighlight = {
+                  id: highlightId,
+                  page: pageIdx,
+                  field: fieldName || 'Citation',
+                  rect: {
+                    x: tx * viewport.scale,
+                    y: viewport.height - (ty * viewport.scale) - 20,
+                    width: Math.min(foundItem.width * viewport.scale * 3, 400),
+                    height: 30
+                  },
+                  text: searchText.substring(0, 80),
+                  tooltipText: fieldName
+                    ? `${fieldName}: "${searchText.substring(0, 50)}..."`
+                    : `"${searchText.substring(0, 60)}..."`,
+                  isYellow: true, // Start with yellow
+                  persistent: false
+                };
+
+                // Add to citation markers
+                setCitationMarkers(prev => [...prev, citationHighlight]);
+
+                // After 3 seconds, transition to persistent border (not remove)
+                setTimeout(() => {
+                  setCitationMarkers(prev => prev.map(h =>
+                    h.id === highlightId
+                      ? { ...h, isYellow: false, persistent: true }
+                      : h
+                  ));
+                }, 3000);
+
+                showToast(`📍 Found "${fieldName || 'citation'}" on page ${pageIdx}`, "success");
+              } else {
+                showToast(`📍 Found on page ${pageIdx} (no position data)`, "success");
+              }
+
+              return; // Found, stop searching
+            }
+          }
+
+          // Not found on any page
+          showToast("Citation text not found in PDF", "error");
+        } catch (error) {
+          console.error("Citation jump failed:", error);
+          showToast("Failed to locate citation", "error");
+        }
+      };
+
+      // Clear all citation markers
+      const clearCitationMarkers = () => {
+        setCitationMarkers([]);
+      };
+
+      // Make jumpToCitation available globally for citation buttons
+      window.jumpToCitation = jumpToCitation;
+      window.clearCitationMarkers = clearCitationMarkers;
+
       // --- FIREBASE AUTH ---
       const signInWithGoogle = async () => {
         const provider = new firebase.auth.GoogleAuthProvider();
@@ -2467,7 +3390,7 @@
         reader.onload = async (e) => {
           try {
             const arrayBuffer = e.target.result;
-            setPdfFile(file.name);
+            setPdfFile(file);  // Store the File object, not just the filename
             setPdfDoc(null);
             setChatMessages([{ role: 'system', text: 'Document loaded. You can now chat with the abstract.' }]);
 
@@ -2549,16 +3472,133 @@
         }
       };
 
+      // --- SECTION-PRIORITY EXTRACTION HELPER ---
+      // Extract text from specific sections of the PDF with priority order:
+      // 1. Methods + Results (primary sources)
+      // 2. Tables (extracted data)
+      // 3. Figures (OCR transcriptions)
+      // 4. Abstract (fallback only)
+      const extractPrioritizedContent = async () => {
+        if (!pdfDoc) return { content: '', sources: [] };
+
+        const sources = [];
+        let fullText = '';
+
+        // Extract text from ALL pages (increased limit from 20 to 50)
+        const pagesToExtract = Math.min(pdfDoc.numPages, 50);
+        console.log(`[extractPrioritizedContent] Extracting from ${pagesToExtract} pages (total: ${pdfDoc.numPages})`);
+
+        for (let pageIdx = 1; pageIdx <= pagesToExtract; pageIdx++) {
+          try {
+            const page = await pdfDoc.getPage(pageIdx);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += `\n--- PAGE ${pageIdx} ---\n${pageText}`;
+          } catch (e) {
+            console.warn(`Failed to extract page ${pageIdx}:`, e);
+          }
+        }
+        console.log(`[extractPrioritizedContent] Extracted ${fullText.length} chars from ${pagesToExtract} pages`);
+
+        // Detect sections using common headers
+        const sections = {
+          methods: '',
+          results: '',
+          abstract: '',
+          discussion: ''
+        };
+
+        // Simple section detection (case-insensitive)
+        const methodsMatch = fullText.match(/(?:methods|materials and methods|patients and methods|study design)[\s\S]*?(?=results|discussion|conclusion|references|$)/i);
+        const resultsMatch = fullText.match(/(?:results)[\s\S]*?(?=discussion|conclusion|references|$)/i);
+        const abstractMatch = fullText.match(/(?:abstract|background|objective)[\s\S]*?(?=introduction|methods|materials|$)/i);
+
+        if (methodsMatch) {
+          sections.methods = methodsMatch[0].substring(0, 5000); // Limit length
+          sources.push('Methods');
+        }
+        if (resultsMatch) {
+          sections.results = resultsMatch[0].substring(0, 5000);
+          sources.push('Results');
+        }
+        if (abstractMatch) {
+          sections.abstract = abstractMatch[0].substring(0, 2000);
+        }
+
+        // Build prioritized content (Methods + Results first, Abstract as fallback)
+        let prioritizedContent = '';
+
+        if (sections.methods || sections.results) {
+          prioritizedContent += '=== PRIMARY SOURCES (Methods & Results) ===\n';
+          if (sections.methods) prioritizedContent += `\n[METHODS SECTION]\n${sections.methods}\n`;
+          if (sections.results) prioritizedContent += `\n[RESULTS SECTION]\n${sections.results}\n`;
+        }
+
+        // Add table data if available (from TablesPanel state - we'll reference via window)
+        if (window._extractedTables && window._extractedTables.length > 0) {
+          prioritizedContent += '\n=== EXTRACTED TABLES ===\n';
+          window._extractedTables.forEach((table, idx) => {
+            prioritizedContent += `\n[Table ${idx + 1} - Page ${table.page}]\n`;
+            if (table.headers) prioritizedContent += `Headers: ${table.headers.join(' | ')}\n`;
+            if (table.rows) {
+              table.rows.slice(0, 10).forEach(row => { // Limit rows
+                prioritizedContent += `${row.join(' | ')}\n`;
+              });
+            }
+          });
+          sources.push('Tables');
+        }
+
+        // Add figure transcriptions if available
+        if (window._figureTranscriptions) {
+          const transcriptions = Object.values(window._figureTranscriptions).filter(t => t);
+          if (transcriptions.length > 0) {
+            prioritizedContent += '\n=== FIGURE TRANSCRIPTIONS (OCR) ===\n';
+            transcriptions.forEach((t, idx) => {
+              prioritizedContent += `\n[Figure ${idx + 1}]\n${t.substring(0, 1500)}\n`;
+            });
+            sources.push('Figures');
+          }
+        }
+
+        // Only use Abstract as fallback if no Methods/Results found
+        if (!sections.methods && !sections.results) {
+          prioritizedContent += '\n=== ABSTRACT (Fallback) ===\n';
+          prioritizedContent += sections.abstract || pageOneText || '';
+          sources.push('Abstract (fallback)');
+        }
+
+        return { content: prioritizedContent.substring(0, 15000), sources };
+      };
+
       // --- FEATURE 1: AUTO-FILL ENTIRE FORM ---
       const handleAiAutofill = async () => {
-        if (!pageOneText) return showToast("No text available from abstract", "error");
+        if (!pdfDoc && !pageOneText) return showToast("No PDF loaded", "error");
         setIsLoading(true);
 
-        const systemPrompt = `You are an expert systematic reviewer. Extract data from this medical study abstract into the exact JSON structure provided. 
-                              Be precise. If data is missing, use empty strings. 
-                              Return ONLY valid JSON. 
-                              
-                              Abstract: ${pageOneText}`;
+        // Extract prioritized content from Methods/Results/Tables/Figures
+        const { content: prioritizedContent, sources } = await extractPrioritizedContent();
+        const textToUse = prioritizedContent || pageOneText;
+
+        if (!textToUse) {
+          setIsLoading(false);
+          return showToast("No text available for extraction", "error");
+        }
+
+        showToast(`📊 Extracting from: ${sources.join(', ')}`, "success");
+
+        const systemPrompt = `You are an expert systematic reviewer. Extract data from this medical study into the exact JSON structure provided.
+
+IMPORTANT SOURCE PRIORITY:
+- Data from Methods/Results sections is most reliable
+- Data from Tables is precise - use exact numbers
+- Data from Figures (OCR) may have transcription errors - verify if possible
+- Abstract data is summary only - use as fallback
+
+Be precise. If data is missing, use empty strings. Return ONLY valid JSON.
+
+Study Content:
+${textToUse}`;
 
         try {
           const jsonText = await callGemini(systemPrompt, GEMINI_SCHEMA);
@@ -2596,9 +3636,124 @@
             return next;
           });
 
+          // Populate dynamic field arrays from AI extraction
+          if (aiData.studyArms && Array.isArray(aiData.studyArms)) {
+            const newArms = aiData.studyArms
+              .filter(arm => arm.label) // Only add if has label
+              .map(arm => ({
+                id: counterRef.current.arm++,
+                label: arm.label || '',
+                sampleSize: arm.sampleSize || ''
+              }));
+            if (newArms.length > 0) {
+              setStudyArms(newArms);
+              newAiFields.add('studyArms');
+            }
+          }
+
+          if (aiData.indications && Array.isArray(aiData.indications)) {
+            const newIndications = aiData.indications
+              .filter(ind => ind.sign) // Only add if has sign
+              .map(ind => ({
+                id: counterRef.current.indication++,
+                sign: ind.sign || '',
+                count: ind.count || ''
+              }));
+            if (newIndications.length > 0) {
+              setIndications(newIndications);
+              newAiFields.add('indications');
+            }
+          }
+
+          if (aiData.interventions && Array.isArray(aiData.interventions)) {
+            const newInterventions = aiData.interventions
+              .filter(int => int.type) // Only add if has type
+              .map(int => ({
+                id: counterRef.current.intervention++,
+                type: int.type || '',
+                timeToSurgery: int.timeToSurgery || '',
+                duraplasty: int.duraplasty || 'null'
+              }));
+            if (newInterventions.length > 0) {
+              setInterventions(newInterventions);
+              newAiFields.add('interventions');
+            }
+          }
+
+          if (aiData.mortalities && Array.isArray(aiData.mortalities)) {
+            const newMortalities = aiData.mortalities
+              .filter(mort => mort.timepoint || mort.deaths) // Only add if has data
+              .map(mort => ({
+                id: counterRef.current.mortality++,
+                arm: mort.arm || '',
+                timepoint: mort.timepoint || '',
+                deaths: mort.deaths || '',
+                total: mort.total || ''
+              }));
+            if (newMortalities.length > 0) {
+              setMortalityData(newMortalities);
+              newAiFields.add('mortalities');
+            }
+          }
+
+          if (aiData.mrsScores && Array.isArray(aiData.mrsScores)) {
+            const newMrsScores = aiData.mrsScores
+              .filter(mrs => mrs.arm || mrs.timepoint) // Only add if has identifier
+              .map(mrs => ({
+                id: counterRef.current.mrs++,
+                arm: mrs.arm || '',
+                timepoint: mrs.timepoint || '',
+                scores: {
+                  0: mrs.scores?.['0'] || '',
+                  1: mrs.scores?.['1'] || '',
+                  2: mrs.scores?.['2'] || '',
+                  3: mrs.scores?.['3'] || '',
+                  4: mrs.scores?.['4'] || '',
+                  5: mrs.scores?.['5'] || '',
+                  6: mrs.scores?.['6'] || ''
+                }
+              }));
+            if (newMrsScores.length > 0) {
+              setMrsData(newMrsScores);
+              newAiFields.add('mrsScores');
+            }
+          }
+
+          if (aiData.complications && Array.isArray(aiData.complications)) {
+            const newComplications = aiData.complications
+              .filter(comp => comp.description) // Only add if has description
+              .map(comp => ({
+                id: counterRef.current.complication++,
+                description: comp.description || '',
+                arm: comp.arm || '',
+                count: comp.count || ''
+              }));
+            if (newComplications.length > 0) {
+              setComplications(newComplications);
+              newAiFields.add('complications');
+            }
+          }
+
+          if (aiData.predictors && Array.isArray(aiData.predictors)) {
+            const newPredictors = aiData.predictors
+              .filter(pred => pred.variable) // Only add if has variable name
+              .map(pred => ({
+                id: counterRef.current.predictor++,
+                variable: pred.variable || '',
+                effectSize: pred.effectSize || '',
+                ciLower: pred.ciLower || '',
+                ciUpper: pred.ciUpper || '',
+                pValue: pred.pValue || ''
+              }));
+            if (newPredictors.length > 0) {
+              setPredictors(newPredictors);
+              newAiFields.add('predictors');
+            }
+          }
+
           setAiFilledFields(newAiFields);
-          showToast("✨ Data extracted from abstract!");
-          analytics.logEvent('ai_extraction_completed');
+          showToast(`✨ Data extracted from ${sources.join(', ') || 'PDF'}!`);
+          analytics.logEvent('ai_extraction_completed', { sources });
         } catch (e) {
           console.error(e);
           showToast("AI Extraction failed", "error");
@@ -2705,6 +3860,58 @@
         }
       };
 
+      // --- FEATURE 6: HUMAN-IN-THE-LOOP REVIEW ---
+      const handleRunAIExtraction = async () => {
+        if (!pageOneText) {
+          showToast("Upload a PDF first", "error");
+          return;
+        }
+        setIsExtracting(true);
+        showToast("Running AI extraction via Genkit...");
+
+        try {
+          // Call Genkit Reflection API at localhost:3103 (or configured port)
+          const GENKIT_API = 'http://localhost:3103';
+          const response = await fetch(`${GENKIT_API}/api/runAction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              key: '/flow/extractStudyData',
+              input: { pdfText: pageOneText }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Genkit API error: ${response.status}`);
+          }
+
+          const result = await response.json();
+          if (result.result) {
+            setAiExtractedData(result.result);
+            setVerifiedFields({});
+            setActiveTab('review');
+            showToast("AI extraction complete! Review the results.", "success");
+          } else if (result.error) {
+            throw new Error(result.error.message || 'Extraction failed');
+          }
+        } catch (e) {
+          console.error('AI extraction error:', e);
+          showToast(`Extraction failed: ${e.message}`, "error");
+        } finally {
+          setIsExtracting(false);
+        }
+      };
+
+      const handleVerifyField = (fieldPath) => {
+        setVerifiedFields(prev => ({ ...prev, [fieldPath]: 'verified' }));
+        showToast(`✓ Verified: ${fieldPath.split('.').pop()}`);
+      };
+
+      const handleFlagField = (fieldPath) => {
+        setVerifiedFields(prev => ({ ...prev, [fieldPath]: 'flagged' }));
+        showToast(`⚠ Flagged: ${fieldPath.split('.').pop()}`, "error");
+      };
+
       const addHighlight = (rect, rawText) => {
         const text = cleanExtractedText(rawText);
         const highlight = {
@@ -2762,6 +3969,10 @@
               setActiveCitation(cit);
               if (cit.page !== pageNum) setPageNum(cit.page);
             }}
+            citationMarkers={citationMarkers}
+            setCitationMarkers={setCitationMarkers}
+            availablePdfs={availablePdfs}
+            onLoadFromServer={loadPdfFromServer}
           />
 
           <div className="extraction-panel">
@@ -2804,6 +4015,9 @@
                 </button>
                 <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
                   <Icons.MessageSquare size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Chat with Paper
+                </button>
+                <button className={`tab-btn ${activeTab === 'review' ? 'active' : ''}`} onClick={() => setActiveTab('review')}>
+                  <Icons.CheckCircle size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Review
                 </button>
               </div>
             </div>
@@ -2855,6 +4069,16 @@
                   pdfDoc={pdfDoc}
                   pdfFile={pdfFile}
                 />
+              ) : activeTab === 'review' ? (
+                <ReviewPanel
+                  extractedData={aiExtractedData}
+                  verifiedFields={verifiedFields}
+                  onVerify={handleVerifyField}
+                  onFlag={handleFlagField}
+                  onGoToPage={setPageNum}
+                  onRunExtraction={handleRunAIExtraction}
+                  isExtracting={isExtracting}
+                />
               ) : (
                 <ChatInterface
                   messages={chatMessages}
@@ -2871,6 +4095,270 @@
     }
 
     // --- SUB-COMPONENTS ---
+
+    // --- VERIFIABLE FIELD COMPONENT ---
+    function VerifiableField({ label, value, sourceText, pageNumber, status, onVerify, onFlag, onGoToPage }) {
+      const statusClass = status === 'verified' ? 'verified' : status === 'flagged' ? 'flagged' : '';
+
+      return (
+        <div className={`verifiable-field ${statusClass}`}>
+          <div className="verifiable-field-header">
+            <span className="verifiable-field-label">{label}</span>
+            {status && (
+              <span style={{ fontSize: 11, color: status === 'verified' ? '#27ae60' : '#e67e22' }}>
+                {status === 'verified' ? '✓ Verified' : '⚠ Flagged'}
+              </span>
+            )}
+          </div>
+
+          <div className="verifiable-field-value">
+            {value !== null && value !== undefined ? String(value) : <span style={{ color: '#bdc3c7', fontStyle: 'italic' }}>Not found</span>}
+          </div>
+
+          {sourceText && (
+            <div className="verifiable-field-source">
+              {sourceText}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {pageNumber && (
+              <button className="verifiable-field-page" onClick={() => onGoToPage(pageNumber)}>
+                <Icons.FileText size={12} /> Page {pageNumber}
+              </button>
+            )}
+
+            <div className="verifiable-field-actions">
+              <button className="verify-btn approve" onClick={onVerify} disabled={status === 'verified'}>
+                <Icons.Check size={12} /> Verify
+              </button>
+              <button className="verify-btn flag" onClick={onFlag} disabled={status === 'flagged'}>
+                <Icons.AlertTriangle size={12} /> Flag
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- REVIEW PANEL COMPONENT ---
+    function ReviewPanel({ extractedData, verifiedFields, onVerify, onFlag, onGoToPage, onRunExtraction, isExtracting }) {
+      if (!extractedData) {
+        return (
+          <div className="review-panel" style={{ textAlign: 'center', paddingTop: 60 }}>
+            <Icons.FileSearch size={48} style={{ color: '#bdc3c7', marginBottom: 16 }} />
+            <h3 style={{ color: '#7f8c8d', marginBottom: 12 }}>No AI Extraction Yet</h3>
+            <p style={{ color: '#95a5a6', marginBottom: 20, fontSize: 14 }}>
+              Run the AI extraction to see verifiable fields with source citations.
+            </p>
+            <button
+              className="btn-ai-magic"
+              onClick={onRunExtraction}
+              disabled={isExtracting}
+              style={{ margin: '0 auto' }}
+            >
+              <Icons.Zap size={14} />
+              {isExtracting ? 'Extracting...' : 'Run AI Extraction'}
+            </button>
+          </div>
+        );
+      }
+
+      // Calculate verification progress
+      const allFields = [];
+      const addFields = (obj, prefix = '') => {
+        Object.entries(obj).forEach(([key, val]) => {
+          const path = prefix ? `${prefix}.${key}` : key;
+          if (val && typeof val === 'object' && 'value' in val && 'sourceText' in val) {
+            allFields.push({ path, ...val });
+          } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+            addFields(val, path);
+          }
+        });
+      };
+      addFields(extractedData);
+
+      const verifiedCount = Object.values(verifiedFields).filter(v => v === 'verified').length;
+      const flaggedCount = Object.values(verifiedFields).filter(v => v === 'flagged').length;
+      const progress = allFields.length > 0 ? ((verifiedCount + flaggedCount) / allFields.length) * 100 : 0;
+
+      return (
+        <div className="review-panel">
+          <div className="review-header">
+            <div className="review-title">
+              {extractedData.metadata?.firstAuthor || 'Unknown'} et al. ({extractedData.metadata?.publicationYear || '?'})
+            </div>
+            <div className="review-meta">
+              {extractedData.metadata?.hospitalCenter || 'Unknown Institution'} • {extractedData.metadata?.studyPeriod || 'N/A'}
+            </div>
+          </div>
+
+          <div className="review-progress">
+            <div className="review-progress-bar">
+              <div className="review-progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="review-progress-text">
+              {verifiedCount} verified • {flaggedCount} flagged • {allFields.length - verifiedCount - flaggedCount} pending
+            </div>
+          </div>
+
+          {/* Population Section */}
+          <div className="review-section">
+            <div className="review-section-title">Population</div>
+            <VerifiableField
+              label="Sample Size"
+              value={extractedData.population?.sampleSize}
+              sourceText={null}
+              pageNumber={null}
+              status={verifiedFields['population.sampleSize']}
+              onVerify={() => onVerify('population.sampleSize')}
+              onFlag={() => onFlag('population.sampleSize')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="Mean Age"
+              value={extractedData.population?.age?.mean?.value}
+              sourceText={extractedData.population?.age?.mean?.sourceText}
+              pageNumber={extractedData.population?.age?.mean?.pageNumber}
+              status={verifiedFields['population.age.mean']}
+              onVerify={() => onVerify('population.age.mean')}
+              onFlag={() => onFlag('population.age.mean')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="GCS (Admission)"
+              value={extractedData.population?.gcs?.admissionMean?.value}
+              sourceText={extractedData.population?.gcs?.admissionMean?.sourceText}
+              pageNumber={extractedData.population?.gcs?.admissionMean?.pageNumber}
+              status={verifiedFields['population.gcs.admissionMean']}
+              onVerify={() => onVerify('population.gcs.admissionMean')}
+              onFlag={() => onFlag('population.gcs.admissionMean')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="Hydrocephalus %"
+              value={extractedData.population?.hydrocephalus?.value}
+              sourceText={extractedData.population?.hydrocephalus?.sourceText}
+              pageNumber={extractedData.population?.hydrocephalus?.pageNumber}
+              status={verifiedFields['population.hydrocephalus']}
+              onVerify={() => onVerify('population.hydrocephalus')}
+              onFlag={() => onFlag('population.hydrocephalus')}
+              onGoToPage={onGoToPage}
+            />
+          </div>
+
+          {/* Intervention Section */}
+          <div className="review-section">
+            <div className="review-section-title">Intervention</div>
+            <VerifiableField
+              label="Surgical Technique"
+              value={extractedData.intervention?.technique?.value}
+              sourceText={extractedData.intervention?.technique?.sourceText}
+              pageNumber={extractedData.intervention?.technique?.pageNumber}
+              status={verifiedFields['intervention.technique']}
+              onVerify={() => onVerify('intervention.technique')}
+              onFlag={() => onFlag('intervention.technique')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="EVD Used"
+              value={extractedData.intervention?.evdUsed?.value}
+              sourceText={extractedData.intervention?.evdUsed?.sourceText}
+              pageNumber={extractedData.intervention?.evdUsed?.pageNumber}
+              status={verifiedFields['intervention.evdUsed']}
+              onVerify={() => onVerify('intervention.evdUsed')}
+              onFlag={() => onFlag('intervention.evdUsed')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="Duraplasty"
+              value={extractedData.intervention?.duraplasty?.value}
+              sourceText={extractedData.intervention?.duraplasty?.sourceText}
+              pageNumber={extractedData.intervention?.duraplasty?.pageNumber}
+              status={verifiedFields['intervention.duraplasty']}
+              onVerify={() => onVerify('intervention.duraplasty')}
+              onFlag={() => onFlag('intervention.duraplasty')}
+              onGoToPage={onGoToPage}
+            />
+          </div>
+
+          {/* Outcomes Section */}
+          <div className="review-section">
+            <div className="review-section-title">Outcomes</div>
+            <VerifiableField
+              label="Mortality"
+              value={extractedData.outcomes?.mortality?.value}
+              sourceText={extractedData.outcomes?.mortality?.sourceText}
+              pageNumber={extractedData.outcomes?.mortality?.pageNumber}
+              status={verifiedFields['outcomes.mortality']}
+              onVerify={() => onVerify('outcomes.mortality')}
+              onFlag={() => onFlag('outcomes.mortality')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="Favorable mRS"
+              value={extractedData.outcomes?.mRS_favorable?.value}
+              sourceText={extractedData.outcomes?.mRS_favorable?.sourceText}
+              pageNumber={extractedData.outcomes?.mRS_favorable?.pageNumber}
+              status={verifiedFields['outcomes.mRS_favorable']}
+              onVerify={() => onVerify('outcomes.mRS_favorable')}
+              onFlag={() => onFlag('outcomes.mRS_favorable')}
+              onGoToPage={onGoToPage}
+            />
+            <VerifiableField
+              label="Length of Stay"
+              value={extractedData.outcomes?.lengthOfStay?.value}
+              sourceText={extractedData.outcomes?.lengthOfStay?.sourceText}
+              pageNumber={extractedData.outcomes?.lengthOfStay?.pageNumber}
+              status={verifiedFields['outcomes.lengthOfStay']}
+              onVerify={() => onVerify('outcomes.lengthOfStay')}
+              onFlag={() => onFlag('outcomes.lengthOfStay')}
+              onGoToPage={onGoToPage}
+            />
+          </div>
+
+          {/* Quality Section */}
+          <div className="review-section">
+            <div className="review-section-title">Quality Assessment (NOS)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+              <div style={{ textAlign: 'center', padding: 12, background: '#f8f9fa', borderRadius: 8 }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#3498db' }}>{extractedData.quality?.selectionScore || 0}</div>
+                <div style={{ fontSize: 11, color: '#7f8c8d' }}>Selection /4</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: 12, background: '#f8f9fa', borderRadius: 8 }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#9b59b6' }}>{extractedData.quality?.comparabilityScore || 0}</div>
+                <div style={{ fontSize: 11, color: '#7f8c8d' }}>Comparability /2</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: 12, background: '#f8f9fa', borderRadius: 8 }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#27ae60' }}>{extractedData.quality?.outcomeScore || 0}</div>
+                <div style={{ fontSize: 11, color: '#7f8c8d' }}>Outcome /3</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: 12, background: 'linear-gradient(135deg, #667eea, #764ba2)', borderRadius: 8, color: 'white' }}>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{extractedData.quality?.totalScore || 0}</div>
+                <div style={{ fontSize: 11, opacity: 0.8 }}>Total /9</div>
+              </div>
+            </div>
+            {extractedData.quality?.biasNotes && (
+              <div style={{ padding: 12, background: '#fff3cd', borderRadius: 8, fontSize: 13, color: '#856404' }}>
+                <strong>Bias Notes:</strong> {extractedData.quality.biasNotes}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+            <button
+              className="btn-ai-magic"
+              onClick={onRunExtraction}
+              disabled={isExtracting}
+            >
+              <Icons.RefreshCw size={14} />
+              Re-extract
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     function ChatInterface({ messages, onSendMessage, hasContext }) {
       const [input, setInput] = useState('');
@@ -2953,6 +4441,13 @@
           setIsSuggesting(false);
         };
 
+        // Locate button - search for this value in the PDF
+        const handleLocate = () => {
+          if (val && window.jumpToCitation) {
+            window.jumpToCitation(val, label);
+          }
+        };
+
         return (
           <div className="form-group">
             <label>{label}</label>
@@ -2967,6 +4462,12 @@
                   onFocus={() => onFieldSelect(Object.keys(FIELD_MAP).find(key => FIELD_MAP[key] === path))} />
               )}
               <div className="input-actions">
+                {val && (
+                  <button className="btn-citation"
+                    onClick={handleLocate} title={`Locate "${label}" in PDF`} type="button">
+                    <Icons.MapPin size={14} />
+                  </button>
+                )}
                 <button className={`btn-suggest ${isSuggesting ? 'loading' : ''}`}
                   onClick={triggerSuggest} title="Ask Gemini to find this" type="button">
                   <Icons.Wand2 size={14} />
@@ -3070,6 +4571,21 @@
                   <div className="citation-meta">
                     <span>Page {cit.page}</span>
                     <span>Chars {cit.startChar}-{cit.endChar}</span>
+                    <button
+                      className="btn-citation has-citation"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const sourceText = cit.sourceText || cit.citedText;
+                        const fieldName = cit.field || cit.value?.substring(0, 30) || 'Citation';
+                        if (sourceText && window.jumpToCitation) {
+                          window.jumpToCitation(sourceText, fieldName);
+                        }
+                      }}
+                      title="Jump to citation and highlight"
+                      style={{ marginLeft: 'auto', padding: '2px 8px' }}
+                    >
+                      📍 Locate
+                    </button>
                   </div>
                 </div>
               ))}
@@ -3080,9 +4596,28 @@
             <div className="annotations-container">
               <h3 style={{ fontSize: '12px', fontWeight: 600, color: '#777', marginBottom: '10px', marginTop: '20px' }}>CAPTURED SNIPPETS</h3>
               {highlights.map(h => (
-                <div key={h.id} className="annotation-card" onClick={() => onGoToHighlight(h.page)}>
-                  <strong>{h.field} (Pg {h.page})</strong>
-                  <p>{h.text}</p>
+                <div key={h.id} className="annotation-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div onClick={() => onGoToHighlight(h.page)} style={{ cursor: 'pointer', flex: 1 }}>
+                      <strong>{h.field} (Pg {h.page})</strong>
+                      <p style={{ margin: '4px 0 0' }}>{h.text}</p>
+                    </div>
+                    {h.text && !h.temporary && (
+                      <button
+                        className="btn-citation has-citation"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.jumpToCitation) {
+                            window.jumpToCitation(h.text, h.field || 'Snippet');
+                          }
+                        }}
+                        title="Jump and highlight"
+                        style={{ padding: '2px 6px', marginLeft: '8px' }}
+                      >
+                        📍
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -3283,7 +4818,9 @@
       pdfFile, pdfDoc, pageNum, numPages, highlights,
       currentField, selectionMode, onFileUpload, onPageChange,
       onFieldSelect, onSelectionModeToggle, onAddHighlight,
-      citationHighlights, activeCitation, onCitationClick, onViewportChange
+      citationHighlights, activeCitation, onCitationClick, onViewportChange,
+      citationMarkers, setCitationMarkers,
+      availablePdfs = [], onLoadFromServer
     }) {
       const canvasRef = useRef(null);
       const [scale, setScale] = useState(1.2);
@@ -3370,10 +4907,31 @@
         <div className="pdf-panel">
           <div className="pdf-header">
             <h2>📄 PDF Explorer</h2>
-            <label className="file-upload-btn">
-              Upload PDF
-              <input type="file" accept=".pdf" onChange={e => onFileUpload(e.target.files[0])} />
-            </label>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              {availablePdfs.length > 0 && (
+                <select
+                  onChange={(e) => onLoadFromServer && onLoadFromServer(e.target.value)}
+                  defaultValue=""
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #ccc',
+                    background: '#f8f9fa',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="" disabled>📚 Select PDF...</option>
+                  {availablePdfs.map((pdf, idx) => (
+                    <option key={idx} value={pdf.filename}>{pdf.name}</option>
+                  ))}
+                </select>
+              )}
+              <label className="file-upload-btn">
+                Upload PDF
+                <input type="file" accept=".pdf" onChange={e => onFileUpload(e.target.files[0])} />
+              </label>
+            </div>
           </div>
 
           {pdfFile && (
@@ -3437,6 +4995,29 @@
                         />
                       );
                     })}
+
+                  {/* Citation jump markers (yellow → persistent orange border with tooltip) */}
+                  {citationMarkers && citationMarkers
+                    .filter(m => m.page === pageNum)
+                    .map((m) => (
+                      <div
+                        key={`marker-${m.id}`}
+                        className={`citation-jump-highlight ${m.persistent ? 'persistent' : ''}`}
+                        style={{
+                          left: m.rect.x,
+                          top: m.rect.y,
+                          width: m.rect.width,
+                          height: m.rect.height,
+                          background: m.isYellow ? 'rgba(255, 235, 59, 0.6)' : 'rgba(255, 235, 59, 0.15)'
+                        }}
+                        onClick={() => {
+                          // Click to remove this marker
+                          setCitationMarkers(prev => prev.filter(h => h.id !== m.id));
+                        }}
+                      >
+                        <span className="citation-tooltip">{m.tooltipText}</span>
+                      </div>
+                    ))}
                 </div>
               </div>
             ) : (

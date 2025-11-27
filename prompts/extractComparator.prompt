@@ -1,0 +1,52 @@
+---
+model: googleai/gemini-3-pro-preview
+config:
+  temperature: 0.1
+  maxOutputTokens: 2048
+input:
+  schema:
+    pdfText: string, The raw PDF text content
+output:
+  schema:
+    exists: boolean, Whether a comparator group exists
+    type: string?, One of: Medical Management, EVD Only, Other Surgery, None
+    description: string?, Description of comparator
+    sampleSize: integer?, Number in comparator group
+---
+{{role "system"}}
+You are identifying control/comparator groups in medical research studies.
+Determine if the study has a comparison arm for the SDC intervention.
+
+{{role "user"}}
+Check if this medical study has a COMPARATOR/CONTROL group.
+
+**What to Look For:**
+- Comparison groups (medical management only, EVD only, other surgery)
+- Matched cohorts
+- Historical controls
+- Propensity-matched groups
+- Before/after comparisons
+
+**If NO Comparator Exists (Single-Arm Study):**
+Return:
+```json
+{
+  "exists": false,
+  "type": "None",
+  "description": null,
+  "sampleSize": null
+}
+```
+
+**If a Comparator EXISTS:**
+- Set `exists: true`
+- Classify `type` as one of:
+  - "Medical Management" - Conservative treatment only
+  - "EVD Only" - External ventricular drain without SDC
+  - "Other Surgery" - Different surgical approach
+  - "None" - If single-arm
+- Describe the comparator group
+- Note the sample size if available
+
+**STUDY TEXT:**
+{{pdfText}}

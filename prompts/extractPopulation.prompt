@@ -1,0 +1,66 @@
+---
+model: googleai/gemini-3-pro-preview
+config:
+  temperature: 0.1
+  maxOutputTokens: 4096
+input:
+  schema:
+    pdfText: string, The raw PDF text content
+output:
+  schema:
+    sampleSize: integer, Total SDC patients
+    age:
+      mean:
+        value: number?
+        sourceText: string?, Verbatim quote
+        pageNumber: integer?
+      sd:
+        value: number?
+        sourceText: string?
+        pageNumber: integer?
+      range: string?
+    gcs:
+      admissionMean:
+        value: number?
+        sourceText: string?
+        pageNumber: integer?
+      preOpMean:
+        value: number?
+        sourceText: string?
+        pageNumber: integer?
+    hydrocephalus:
+      value: number?, Percentage 0-100
+      sourceText: string?
+      pageNumber: integer?
+    diagnosis: string, Primary diagnosis
+    inclusionCriteria: string[], List of criteria
+---
+{{role "system"}}
+You are a medical research data extractor specializing in patient demographics and population characteristics.
+Extract data with verbatim source quotes for verification.
+
+{{role "user"}}
+Extract POPULATION data from this Suboccipital Decompressive Craniectomy (SDC) study.
+
+**Focus Areas:**
+- METHODS section
+- TABLE 1 (Baseline Characteristics)
+- Patient demographics tables
+
+**Required Extractions:**
+1. **Sample Size**: Total number of SDC patients
+2. **Age Demographics**: Mean, SD, and range with source quotes
+3. **GCS Scores**: Admission and pre-operative scores with source quotes
+4. **Hydrocephalus**: Percentage (0-100) with source quote
+5. **Primary Diagnosis**: e.g., cerebellar infarction, hemorrhage
+6. **Inclusion Criteria**: List from Methods section
+
+**CRITICAL RULES:**
+- For EVERY value with sourceText field, provide the VERBATIM quote from the text
+- Include the PAGE NUMBER (1-indexed) where you found each value
+- If a value is NOT explicitly stated, return null (do NOT calculate or estimate)
+- GCS scale is 3-15 (validate extracted values)
+- Hydrocephalus is a percentage 0-100
+
+**STUDY TEXT:**
+{{pdfText}}

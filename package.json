@@ -23,6 +23,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@genkit-ai/dev-local-vectorstore": "^1.24.0",
+    "@genkit-ai/google-genai": "^1.24.0",
     "@genkit-ai/googleai": "^1.24.0",
     "@google-cloud/firestore": "^7.11.6",
     "dotenv": "^17.2.3",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@types/json2csv": "^5.0.7",
-    "@types/pdf-parse": "^1.1.5"
+    "@types/pdf-parse": "^1.1.5",
+    "genkit-cli": "^1.24.0"
   }
 }

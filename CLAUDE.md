@@ -13,6 +13,7 @@ npm run genkit batch <dir> [n]   # Batch process PDFs (n=concurrency)
 npm run genkit search "<query>"  # RAG semantic search
 npm run genkit export [path]     # Export to CSV
 npm run genkit list              # List stored studies
+npm run genkit critique <file> [--mode=AUTO|REVIEW]  # Validate extraction quality
 
 # Build
 npm run build                    # Compile TypeScript
@@ -42,6 +43,23 @@ AI extraction system using Gemini 3 Pro. This is the primary development focus.
 - `extractOutcomes` - Mortality, mRS, complications
 - `extractQuality` - Newcastle-Ottawa Scale assessment
 
+**Streaming Progress**: The `extractStudyData` flow uses `streamSchema` and `sendChunk()` to provide real-time progress updates. Consumers receive `ExtractionProgressSchema` chunks with:
+- `agent`: Name of the active agent
+- `status`: "started" | "completed" | "error"
+- `progress`: 0-1 weighted progress
+- `message`: Human-readable status
+- `timestamp`: ISO timestamp
+
+**Dotprompt Templates**: Extraction agents use external `.prompt` files in `prompts/`:
+- `prompts/extractMetadata.prompt`
+- `prompts/extractPopulation.prompt`
+- `prompts/extractIntervention.prompt`
+- `prompts/extractComparator.prompt`
+- `prompts/extractOutcomes.prompt`
+- `prompts/extractQuality.prompt`
+
+Prompts use YAML front matter for model config and Handlebars templating. Edit prompts without touching TypeScript code.
+
 **VerifiableField pattern**: Data points have both `value` and `sourceText` (verbatim quote) for audit trails.
 
 **Dual Storage**: Local JSON (`./data/studies.json`) vs Firestore. Toggle with `USE_FIRESTORE=true`.
@@ -53,6 +71,13 @@ AI extraction system using Gemini 3 Pro. This is the primary development focus.
 - Source Text Verification (30%) - 12 VerifiableFields have quotes
 - NOS Consistency (15%) - Quality scores validate mathematically
 - LLM Accuracy (25%) - Gemini verifies against source text
+
+**Critique/Reflector Agent System**: 3-layer validation architecture for quality control:
+- Layer 1: Programmatic gates (8 instant checks: age, GCS, percentages, NOS scores)
+- Layer 2: 8 specialized LLM critics running in parallel (math consistency, scale inversion, EVD confounding, etc.)
+- Layer 3: Evidence anchoring (verifies 12 VerifiableFields have source quotes)
+- Two modes: AUTO (batch processing with auto-correct) and REVIEW (manual review with suggestions)
+- Toggle via `CRITIQUE_MODE` environment variable or per-call `--mode` flag
 
 ### 2. Web Frontend (`public/index.html`)
 Single-file React app (3,400+ lines) with CDN-based React 18 and in-browser Babel JSX transformation.
@@ -169,11 +194,247 @@ with sync_playwright() as p:
     # Test 4 tabs, dynamic fields, arm selectors, etc.
 ```
 
+## Critique/Reflector Agent System
+
+### Architecture
+
+Three-layer validation system for quality control:
+
+**Layer 1: Programmatic Gates** (instant, free validation)
+- Age validation (0-120 years)
+- GCS validation (3-15 scale)
+- Hydrocephalus percentage (0-100%)
+- Sample size validation (positive integer)
+- Publication year (1900-current+1)
+- NOS score validation (0-9 total, components sum correctly)
+- Comparator sampleSize null check
+
+**Layer 2: Specialized LLM Critics** (parallel execution)
+1. `mathConsistencyChecker` - Percentage/N mismatches, subgroup sums
+2. `scaleInversionSentinel` - mRS vs GOS confusion (0=good vs 1=death)
+3. `etiologySegregator` - Infarction vs hemorrhage outcome segregation
+4. `evdConfoundingDetector` - SDC+EVD vs SDC-alone confounding
+5. `flowchartConsistencyChecker` - Patient N tracking (screened→excluded→enrolled→analyzed)
+6. `surgicalTechniqueClassifier` - Duraplasty, C1 laminectomy documentation
+7. `outcomeDefinitionVerifier` - mRS cutoff clarity (0-2 vs 0-3), mortality timepoint
+8. `sourceCitationVerifier` - Extracted values match source quotes
+
+**Layer 3: Evidence Anchoring**
+- Verifies 12 VerifiableFields have source quotes (minimum 10 characters)
+- Fields: age.mean, age.sd, technique, evdUsed, duraplasty, mortality, mRS_favorable, lengthOfStay, complications
+
+### Operating Modes
+
+**AUTO Mode** (batch processing with auto-correct):
+```bash
+npm run genkit critique <pdf> --mode=AUTO
+```
+- Auto-corrects CRITICAL issues using `suggestedValue`
+- Continues processing even if validation fails
+- Ideal for batch processing workflows
+- Applied corrections returned in `corrections` map
+
+**REVIEW Mode** (manual review with suggestions):
+```bash
+npm run genkit critique <pdf> --mode=REVIEW
+```
+- Returns failed status if validation fails
+- Blocks saving until issues are addressed
+- Provides `suggestedValue` for human review
+- Ideal for high-stakes single-paper extraction
+
+**Default Mode**: Set via `CRITIQUE_MODE` environment variable (defaults to REVIEW)
+
+### Integration with checkAndSaveStudy
+
+The `checkAndSaveStudy` flow accepts optional critique parameters:
+
+```typescript
+await checkAndSaveStudy({
+  extractedData,
+  pdfText,          // Required for critique
+  runCritique: true,
+  critiqueMode: "REVIEW"  // or "AUTO"
+});
+```
+
+**Behavior**:
+- If `runCritique=false`: Standard duplicate check + save
+- If `runCritique=true` + `critiqueMode=REVIEW`: Blocks saving if validation fails, returns `status: "failed_critique"`
+- If `runCritique=true` + `critiqueMode=AUTO`: Auto-corrects CRITICAL issues, continues with save
+
+**Output Schema**:
+```typescript
+{
+  status: "saved" | "flagged_duplicate" | "failed_critique" | "error",
+  docId: string | null,
+  duplicateReport: DuplicateAssessment | null,
+  critiqueReport: CritiqueResult | null,
+  message: string
+}
+```
+
+### CritiqueResult Schema
+
+```typescript
+{
+  mode: "AUTO" | "REVIEW",
+  passedValidation: boolean,
+  overallConfidence: number,  // 0-1 weighted average
+  issues: Array<{
+    criticId: string,
+    severity: "CRITICAL" | "WARNING" | "INFO",
+    field: string,                    // e.g., "population.age.mean"
+    message: string,
+    currentValue: unknown,
+    suggestedValue: unknown | null,
+    sourceEvidence: string | null,
+    autoCorrectApplied: boolean
+  }>,
+  corrections: Record<string, unknown>,  // AUTO mode only
+  summary: string,
+  layer1Results: { passed: boolean, errors: string[] },
+  layer2Results: Array<{
+    criticId: string,
+    passed: boolean,
+    confidence: number,
+    issues: CritiqueIssue[]
+  }>,
+  layer3Results: {
+    evidenceAnchored: boolean,
+    missingSourceFields: string[]
+  }
+}
+```
+
+### Domain-Specific Checks
+
+**Scale Confusion** (most common error):
+- mRS: 0=no symptoms, 6=death (lower is better)
+- GOS: 1=death, 5=good recovery (higher is better)
+- GOS-E: 1=death, 8=upper good recovery (higher is better)
+- Critic checks for inverted interpretations
+
+**EVD Confounding**:
+- Studies often conflate SDC+EVD vs SDC-alone outcomes
+- Critic flags when EVD usage isn't stratified in outcomes
+
+**Mathematical Consistency**:
+- Percentages must match N values
+- Subgroups (infarction + hemorrhage) should sum to total
+- Mortality + survivors should equal sample size
+
+**Flowchart Tracking**:
+- Screened → Excluded → Enrolled → Analyzed
+- Each step should have documented N values
+- Losses to follow-up should be explained
+
 ## MCP Integration
 
-Genkit flows exposed via MCP server. Config in `~/.claude.json` and Claude Desktop config. After restart, flows callable as tools: `extractStudyData`, `checkAndSaveStudy`, `listStudies`, `searchSimilarStudies`, `evaluateExtraction`.
+### Starting the Genkit Server
+
+```bash
+# Start Genkit runtime (REQUIRED for MCP to discover flows)
+npx genkit start -- node dist/genkit.js
+
+# This starts:
+# - Developer UI: http://localhost:4001
+# - Reflection API: http://localhost:3100 (or 3101 if busy)
+# - Telemetry: http://localhost:4036
+```
+
+### Available Genkit Flows (24 total)
+
+| Flow | Purpose |
+|------|---------|
+| `extractStudyData` | Main orchestrator - runs 6 agents in parallel with streaming progress |
+| `extractMetadata` | Title, authors, hospital, period |
+| `extractPopulation` | Demographics, GCS, hydrocephalus |
+| `extractIntervention` | Surgical technique, EVD, duraplasty |
+| `extractComparator` | Control group details |
+| `extractOutcomes` | Mortality, mRS, complications |
+| `extractQuality` | Newcastle-Ottawa Scale assessment |
+| `critiqueExtraction` | Main critique orchestrator - runs 3-layer validation with human review interrupt |
+| `quickCritique` | Fast Layer 1 + Layer 3 validation for real-time UI feedback |
+| `mathConsistencyChecker` | Detects percentage/N mismatches, subgroup sum errors |
+| `scaleInversionSentinel` | Catches mRS vs GOS confusion (#1 error) |
+| `etiologySegregator` | Verifies infarction vs hemorrhage segregation |
+| `evdConfoundingDetector` | Detects SDC+EVD vs SDC-alone confounding |
+| `flowchartConsistencyChecker` | Tracks patient N through study timeline |
+| `surgicalTechniqueClassifier` | Verifies duraplasty, C1 laminectomy documentation |
+| `outcomeDefinitionVerifier` | Checks mRS cutoff and mortality timepoint clarity |
+| `sourceCitationVerifier` | Verifies extracted values match source quotes |
+| `checkAndSaveStudy` | Validate and save to storage (with optional critique) |
+| `listStudies` | List stored studies |
+| `searchSimilarStudies` | RAG semantic search |
+| `evaluateExtraction` | Quality evaluation |
+| `exportDatasetToCSV` | Export to CSV |
+| `batchProcessPDFs` | Batch processing |
+| `chat` | Interactive chat |
+
+### MCP Configuration
+
+Config file at `.mcp.json` enables Claude Code integration:
+
+```json
+{
+  "mcpServers": {
+    "genkit-cerebellar": {
+      "command": "/Users/matheusrech/.nvm/versions/node/v20.19.4/bin/node",
+      "args": ["./node_modules/.bin/genkit", "mcp"],
+      "cwd": "/Users/matheusrech/cerebellar-extraction",
+      "timeout": 60000,
+      "trust": true,
+      "env": {
+        "PATH": "/Users/matheusrech/.nvm/versions/node/v20.19.4/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
+```
+
+**Human Review Interrupt Tool**: In REVIEW mode, `critiqueExtraction` can pause for human decisions:
+
+```typescript
+// Tool pauses flow and returns review request
+humanReviewTool({
+  issues: criticalIssues,
+  summary: "3 critical issues require review",
+  extractedData,
+  confidence: 0.45
+})
+
+// Response schema
+{
+  approved: boolean,
+  decisions: [{field, action: "accept"|"reject"|"modify", customValue?, rationale?}],
+  notes?: string
+}
+```
+
+### Testing Flow Execution
+
+```bash
+# List flows via Reflection API
+curl http://localhost:3101/api/actions | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k) for k in d if '/flow/' in k]"
+
+# Run a flow
+curl -X POST http://localhost:3101/api/runAction \
+  -H "Content-Type: application/json" \
+  -d '{"key":"/flow/listStudies","input":{}}'
+```
 
 ## Environment
 
 - `GOOGLE_GENAI_API_KEY` - Required (in `.env`)
 - `USE_FIRESTORE=true` - Switch from local JSON to Firestore
+- `CRITIQUE_MODE=AUTO|REVIEW` - Default critique mode (defaults to REVIEW if not set)
+
+<genkit_prompts hash="9017b550">
+<!-- Genkit Context - Auto-generated, do not edit -->
+
+Genkit Framework Instructions:
+ - @./GENKIT.md
+
+</genkit_prompts>

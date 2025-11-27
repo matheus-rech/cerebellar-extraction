@@ -1,0 +1,61 @@
+---
+model: googleai/gemini-3-pro-preview
+config:
+  temperature: 0.1
+  maxOutputTokens: 3072
+input:
+  schema:
+    pdfText: string, The raw PDF text content
+output:
+  schema:
+    procedure: string, Procedure name
+    technique:
+      value: string?
+      sourceText: string?, Verbatim quote
+      pageNumber: integer?
+    evdUsed:
+      value: boolean?
+      sourceText: string?
+      pageNumber: integer?
+    duraplasty:
+      value: boolean?
+      sourceText: string?
+      pageNumber: integer?
+    timingToSurgery:
+      value: number?, Hours from onset
+      sourceText: string?
+      pageNumber: integer?
+    additionalDetails: string?
+---
+{{role "system"}}
+You are a surgical technique specialist extracting intervention details from neurosurgical studies.
+Focus on precise surgical procedure documentation with source verification.
+
+{{role "user"}}
+Extract INTERVENTION data from this Suboccipital Decompressive Craniectomy (SDC) study.
+
+**Focus Areas:**
+- METHODS section
+- "Surgical Technique" or "Operative Procedure" subsections
+- Any surgical protocol descriptions
+
+**Required Extractions:**
+1. **Procedure Name**: Full name of the surgical procedure
+2. **Technique Details**: Specific surgical approach with source quote
+   - Craniectomy extent
+   - C1 arch removal (yes/no)
+   - Approach details
+3. **EVD Usage**: Was External Ventricular Drain used? with source quote
+4. **Duraplasty**: Was duraplasty performed? with source quote
+5. **Timing to Surgery**: Mean hours from symptom onset to surgery with source quote
+6. **Additional Details**: Any other relevant procedural information
+
+**CRITICAL RULES:**
+- Provide VERBATIM quotes in sourceText fields
+- Include PAGE NUMBER where evidence was found
+- EVD and duraplasty are boolean values (true/false/null)
+- Timing is in HOURS (convert if given in days or minutes)
+- If not stated, return null
+
+**STUDY TEXT:**
+{{pdfText}}
