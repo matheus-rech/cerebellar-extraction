@@ -1007,13 +1007,27 @@
       firebase.initializeApp(firebaseConfig);
     }
     const app = firebase.app();
+
+    // CRITICAL: Connect to emulators BEFORE creating service instances
+    // This must happen immediately after initializeApp() and before calling firebase.auth() or firebase.firestore()
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.log('🔧 Connecting to Firebase Emulators...');
+      firebase.auth().useEmulator('http://127.0.0.1:9099');
+      firebase.firestore().useEmulator('127.0.0.1', 8080);
+      firebase.functions().useEmulator('127.0.0.1', 5001);
+      console.log('✅ Connected to Auth Emulator: http://127.0.0.1:9099');
+      console.log('✅ Connected to Firestore Emulator: 127.0.0.1:8080');
+      console.log('✅ Connected to Functions Emulator: 127.0.0.1:5001');
+    }
+
+    // Now create service instances (these will use the emulator connections)
     const auth = firebase.auth();
     const db = firebase.firestore();
     const analytics = firebase.analytics();
     const perf = firebase.performance();
 
     const appId = "cerebellar-extraction";
-    const apiKey = "AIzaSyABpwQcfzPOAswAV6Sa-CtBULJRULiD-uE"; // Gemini API key
+    const apiKey = "AIzaSyA0q3GpEymeImQKwJn3g226CYLncCJaOCc"; // Gemini API key
 
     // Inline SVGs to replace Lucide Icons
     const Icons = {
@@ -1026,7 +1040,9 @@
       Quote: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /></svg>,
       Activity: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>,
       Cloud: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M17.5 19c0-1.7-1.3-3-3-3h-11a3 3 0 0 1-.3-6 5 5 0 0 1 9.7-1.5 4 4 0 0 1 7.9 2.3 2.2 2.2 0 0 1 .2.9 2.5 2.5 0 0 1-2.5 2.3Z" /></svg>,
-      Check: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 6 9 17l-5-5" /></svg>
+      Check: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 6 9 17l-5-5" /></svg>,
+      Table: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 3h18v18H3z" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M12 3v18" /></svg>,
+      Image: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>
     };
 
     const FIELD_MAP = {
@@ -1209,7 +1225,7 @@
     };
 
     const callGemini = async (prompt, schema = null) => {
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`;
 
       const payload = {
         contents: [{ parts: [{ text: prompt }] }],
@@ -1234,14 +1250,17 @@
 
     function App() {
       // PDF State
-      const [pdfFile, setPdfFile] = useState(null);
+      const [pdfFile, setPdfFile] = useState(null);  // Filename string
+      const [pdfFileObject, setPdfFileObject] = useState(null);  // Actual File object for Cloud Functions
       const [pdfDoc, setPdfDoc] = useState(null);
       const [pageNum, setPageNum] = useState(1);
       const [numPages, setNumPages] = useState(0);
       const [pageOneText, setPageOneText] = useState('');
+      const [availablePDFs, setAvailablePDFs] = useState([]);
+      const [selectedPDFDropdown, setSelectedPDFDropdown] = useState('');
 
       // Extraction State
-      const [highlights, setHighlights] = useState([]);
+      const [highlights, setHighlights] = useState({}); // Changed to object: { [pdfFilename]: [highlights] }
       const [currentField, setCurrentField] = useState('');
       const [selectionMode, setSelectionMode] = useState(false);
       const [aiFilledFields, setAiFilledFields] = useState(new Set());
@@ -1268,13 +1287,91 @@
       // UI State
       const [toast, setToast] = useState(null);
       const [isLoading, setIsLoading] = useState(false);
-      const [activeTab, setActiveTab] = useState('extract'); // 'extract' or 'chat'
+      const [activeTab, setActiveTab] = useState('extract'); // 'extract', 'tables', 'figures', or 'chat'
       const [chatMessages, setChatMessages] = useState([]); // Array of {role, text}
+      const [extractedTables, setExtractedTables] = useState([]);
+      const [extractedFigures, setExtractedFigures] = useState([]);
+
+      // QuickCritique Validation State
+      const [validationErrors, setValidationErrors] = useState([]);
+      const [validationWarnings, setValidationWarnings] = useState([]);
+      const [isValidating, setIsValidating] = useState(false);
+      const [lastValidationTime, setLastValidationTime] = useState(null);
+      const validationTimeoutRef = React.useRef(null);
 
       const showToast = (message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
       };
+
+      // --- QUICKCRITIQUE VALIDATION ---
+      // Calls the Genkit quickCritique flow for real-time validation
+      const runQuickCritique = async (dataToValidate) => {
+        try {
+          // Try Genkit Reflection API (runs on port 3100 or 3101)
+          const genkitPorts = [3100, 3101];
+          let response = null;
+
+          for (const port of genkitPorts) {
+            try {
+              const res = await fetch(`http://localhost:${port}/api/runAction`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  key: '/flow/quickCritique',
+                  input: { extractedData: dataToValidate }
+                })
+              });
+              if (res.ok) {
+                response = await res.json();
+                break;
+              }
+            } catch (e) {
+              // Try next port
+            }
+          }
+
+          if (!response) {
+            console.warn('QuickCritique: Genkit server not available');
+            return null;
+          }
+
+          return response.result;
+        } catch (error) {
+          console.error('QuickCritique error:', error);
+          return null;
+        }
+      };
+
+      // Debounced validation - runs 1 second after user stops typing
+      const triggerValidation = React.useCallback((data) => {
+        // Clear any pending validation
+        if (validationTimeoutRef.current) {
+          clearTimeout(validationTimeoutRef.current);
+        }
+
+        // Schedule new validation
+        validationTimeoutRef.current = setTimeout(async () => {
+          setIsValidating(true);
+          try {
+            const result = await runQuickCritique(data);
+            if (result) {
+              setValidationErrors(result.errors || []);
+              setValidationWarnings(result.warnings || []);
+              setLastValidationTime(new Date().toLocaleTimeString());
+
+              // Show toast for critical errors
+              if (result.errors && result.errors.length > 0) {
+                showToast(`⚠️ ${result.errors.length} validation issue(s) found`, 'error');
+              }
+            }
+          } catch (e) {
+            console.error('Validation failed:', e);
+          } finally {
+            setIsValidating(false);
+          }
+        }, 1000); // 1 second debounce
+      }, []);
 
       // --- FIREBASE AUTH ---
       const signInWithGoogle = async () => {
@@ -1306,6 +1403,14 @@
         return unsubscribe;
       }, []);
 
+      // Load available PDFs from pdfs.json
+      useEffect(() => {
+        fetch('pdf/pdfs.json')
+          .then(res => res.json())
+          .then(data => setAvailablePDFs(data.pdfs || []))
+          .catch(err => console.error('Failed to load PDFs:', err));
+      }, []);
+
       // --- FIREBASE SYNC ---
       // 1. Load initial data
       useEffect(() => {
@@ -1319,7 +1424,7 @@
             if (data.extractedData) {
               setExtractedData(data.extractedData);
               setAiFilledFields(new Set(data.aiFilledFields || []));
-              setHighlights(data.highlights || []);
+              setHighlights(data.highlights || {}); // Load per-PDF highlights object
               showToast("Cloud data loaded");
             }
           }
@@ -1351,6 +1456,30 @@
         return () => clearTimeout(handler);
       }, [extractedData, highlights, user, aiFilledFields]);
 
+      // 3. Document Size Monitoring (warn at 80% of 1MB Firestore limit)
+      useEffect(() => {
+        const documentData = {
+          extractedData,
+          highlights,
+          aiFilledFields: Array.from(aiFilledFields)
+        };
+        const sizeEstimate = new Blob([JSON.stringify(documentData)]).size;
+        const sizeKB = Math.round(sizeEstimate / 1024);
+        const sizeMB = (sizeEstimate / (1024 * 1024)).toFixed(2);
+
+        // Log size for debugging
+        console.log(`Firestore document size: ${sizeKB} KB (${sizeMB} MB)`);
+
+        // Warn at 80% of 1MB limit (819,200 bytes)
+        if (sizeEstimate > 800_000) {
+          const pdfCount = Object.keys(highlights).length;
+          const totalHighlights = Object.values(highlights).reduce((sum, arr) => sum + arr.length, 0);
+          console.warn(`⚠️ Document size: ${sizeKB} KB - approaching 1MB Firestore limit`);
+          console.warn(`   PDFs with highlights: ${pdfCount}, Total highlights: ${totalHighlights}`);
+          showToast(`⚠️ Storage: ${sizeKB} KB / 1024 KB - Consider archiving old PDFs`, 'warning');
+        }
+      }, [extractedData, highlights, aiFilledFields]);
+
 
       const handleFileUpload = async (file) => {
         if (!file) return;
@@ -1360,6 +1489,7 @@
           try {
             const arrayBuffer = e.target.result;
             setPdfFile(file.name);
+            setPdfFileObject(file);  // Store actual File object for Cloud Functions
             setPdfDoc(null);
             setChatMessages([{ role: 'system', text: 'Document loaded. You can now chat with the abstract.' }]);
 
@@ -1388,6 +1518,46 @@
         reader.readAsArrayBuffer(file);
       };
 
+      const handlePDFDropdownChange = async (filename) => {
+        if (!filename) return;
+        setSelectedPDFDropdown(filename);
+        setIsLoading(true);
+
+        try {
+          const response = await fetch(`pdf/${filename}`);
+          const arrayBuffer = await response.arrayBuffer();
+          const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+          const file = new File([blob], filename, { type: 'application/pdf' });
+
+          setPdfFile(file.name);
+          setPdfFileObject(file);  // Store actual File object for Cloud Functions
+          setPdfDoc(null);
+          setChatMessages([{ role: 'system', text: 'Document loaded from library. You can now chat with the paper.' }]);
+
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+          setPdfDoc(pdf);
+          setNumPages(pdf.numPages);
+          setPageNum(1);
+
+          try {
+            const page = await pdf.getPage(1);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            setPageOneText(pageText);
+          } catch (err) { console.error("Text extraction warning", err); }
+
+          showToast(`${filename} loaded successfully`);
+          analytics.logEvent('pdf_loaded_from_library', { file_name: filename, num_pages: pdf.numPages });
+        } catch (error) {
+          showToast("Error loading PDF from library", 'error');
+          console.error(error);
+          setSelectedPDFDropdown('');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
       const updateField = (path, value, isAi = false) => {
         const keys = path.split('.');
         setExtractedData(prev => {
@@ -1395,6 +1565,10 @@
           let current = next;
           for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
           current[keys[keys.length - 1]] = value;
+
+          // Trigger debounced validation after state update
+          triggerValidation(next);
+
           return next;
         });
 
@@ -1598,6 +1772,7 @@
       };
 
       const addHighlight = (rect, rawText) => {
+        if (!pdfFile) return; // Ensure we have a PDF loaded
         const text = cleanExtractedText(rawText);
         const highlight = {
           id: Date.now(),
@@ -1606,7 +1781,11 @@
           rect: rect,
           text: text
         };
-        setHighlights([...highlights, highlight]);
+        // Add highlight to current PDF's highlight array
+        setHighlights(prev => ({
+          ...prev,
+          [pdfFile]: [...(prev[pdfFile] || []), highlight]
+        }));
 
         const dataPath = FIELD_MAP[currentField];
         if (dataPath) {
@@ -1618,6 +1797,28 @@
           showToast(`Captured: ${currentField}`);
         }
         setSelectionMode(false);
+      };
+
+      const clearHighlightsForPDF = () => {
+        if (!pdfFile) {
+          showToast('No PDF loaded', 'error');
+          return;
+        }
+        const count = (highlights[pdfFile] || []).length;
+        if (count === 0) {
+          showToast('No highlights to clear', 'info');
+          return;
+        }
+        if (!window.confirm(`Delete ${count} highlight${count !== 1 ? 's' : ''} for "${pdfFile}"?\n\nThis action cannot be undone.`)) {
+          return;
+        }
+        setHighlights(prev => {
+          const updated = { ...prev };
+          delete updated[pdfFile];
+          return updated;
+        });
+        showToast(`Cleared ${count} highlight${count !== 1 ? 's' : ''}`, 'success');
+        analytics.logEvent('highlights_cleared', { pdf_file: pdfFile, count });
       };
 
       const handleExport = () => {
@@ -1666,12 +1867,16 @@
             onFieldSelect={setCurrentField}
             onSelectionModeToggle={setSelectionMode}
             onAddHighlight={addHighlight}
+            onClearHighlights={clearHighlightsForPDF}
             citationHighlights={citationHighlights}
             activeCitation={activeCitation}
             onCitationClick={(cit) => {
               setActiveCitation(cit);
               if (cit.page !== pageNum) setPageNum(cit.page);
             }}
+            availablePDFs={availablePDFs}
+            selectedPDFDropdown={selectedPDFDropdown}
+            onPDFDropdownChange={handlePDFDropdownChange}
           />
 
           <div className="extraction-panel">
@@ -1684,6 +1889,28 @@
                   <span className="save-status saved"><Icons.Check size={12} /> Saved</span>
                 )}
               </div>
+              {activeTab === 'extract' && (
+                <select
+                  value={currentField}
+                  onChange={e => setCurrentField(e.target.value)}
+                  style={{
+                    padding: '6px 10px',
+                    background: 'white',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    marginBottom: '10px',
+                    width: '100%',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">Jump to Field...</option>
+                  {Object.keys(FIELD_MAP).map(fieldName => (
+                    <option key={fieldName} value={fieldName}>{fieldName}</option>
+                  ))}
+                </select>
+              )}
+
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
                 {activeTab === 'extract' && (
                   <>
@@ -1706,8 +1933,14 @@
                 <button className={`tab-btn ${activeTab === 'extract' ? 'active' : ''}`} onClick={() => setActiveTab('extract')}>
                   <Icons.FileText size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Form
                 </button>
+                <button className={`tab-btn ${activeTab === 'tables' ? 'active' : ''}`} onClick={() => setActiveTab('tables')}>
+                  <Icons.Table size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Tables
+                </button>
+                <button className={`tab-btn ${activeTab === 'figures' ? 'active' : ''}`} onClick={() => setActiveTab('figures')}>
+                  <Icons.Image size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Figures
+                </button>
                 <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
-                  <Icons.MessageSquare size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Chat with Paper
+                  <Icons.MessageSquare size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Chat
                 </button>
               </div>
             </div>
@@ -1717,6 +1950,7 @@
                 <ExtractionForm
                   data={extractedData}
                   highlights={highlights}
+                  pdfFile={pdfFile}
                   currentField={currentField}
                   aiFilledFields={aiFilledFields}
                   onUpdate={updateField}
@@ -1732,6 +1966,24 @@
                     setActiveCitation(cit);
                     if (cit.page) setPageNum(cit.page);
                   }}
+                  validationErrors={validationErrors}
+                  validationWarnings={validationWarnings}
+                  isValidating={isValidating}
+                  lastValidationTime={lastValidationTime}
+                />
+              ) : activeTab === 'tables' ? (
+                <TablesInterface
+                  pdfDoc={pdfDoc}
+                  pdfFile={pdfFileObject}
+                  tables={extractedTables}
+                  onTablesExtracted={setExtractedTables}
+                />
+              ) : activeTab === 'figures' ? (
+                <FiguresInterface
+                  pdfDoc={pdfDoc}
+                  pdfFile={pdfFileObject}
+                  figures={extractedFigures}
+                  onFiguresExtracted={setExtractedFigures}
                 />
               ) : (
                 <ChatInterface
@@ -1808,9 +2060,331 @@
       );
     }
 
-    function ExtractionForm({ data, highlights, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect }) {
+    function TablesInterface({ pdfDoc, pdfFile, tables, onTablesExtracted }) {
+      const [isExtracting, setIsExtracting] = useState(false);
+      const [error, setError] = useState(null);
+      const [expandedTable, setExpandedTable] = useState(null);
+
+      const extractTables = async () => {
+        if (!pdfFile) {
+          setError('Please upload a PDF file first');
+          return;
+        }
+        setIsExtracting(true);
+        setError(null);
+
+        try {
+          // Convert PDF to base64
+          const arrayBuffer = await pdfFile.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+          );
+
+          // Call Python Cloud Function
+          const extractTablesEnhanced = firebase.functions().httpsCallable('extract_tables_enhanced');
+
+          // Use direct HTTP call since Python functions use on_request
+          const response = await fetch('http://127.0.0.1:5001/cerebellar-sdc/us-central1/extract_tables_enhanced', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_base64: base64, detect_captions: true })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            const extractedTables = result.tables.map((table, idx) => ({
+              id: idx + 1,
+              page: table.page,
+              caption: table.caption || `Table ${table.table_index + 1}`,
+              headers: table.headers,
+              rows: table.rows,
+              raw: table.raw,
+              rowCount: table.row_count,
+              colCount: table.column_count
+            }));
+            onTablesExtracted(extractedTables);
+            console.log(`✅ Extracted ${extractedTables.length} tables`);
+          } else {
+            throw new Error(result.error || 'Table extraction failed');
+          }
+        } catch (error) {
+          console.error('Table extraction error:', error);
+          setError(error.message);
+        } finally {
+          setIsExtracting(false);
+        }
+      };
+
+      return (
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>📊 Table Extraction</h3>
+            <p style={{ fontSize: '13px', color: '#7f8c8d', marginBottom: '15px' }}>
+              Extract structured tables from the PDF with automatic caption detection.
+            </p>
+            <button
+              onClick={extractTables}
+              disabled={!pdfFile || isExtracting}
+              style={{
+                padding: '10px 20px',
+                background: 'var(--primary)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: pdfFile && !isExtracting ? 'pointer' : 'not-allowed',
+                opacity: pdfFile && !isExtracting ? 1 : 0.6
+              }}
+            >
+              {isExtracting ? 'Extracting...' : 'Extract Tables'}
+            </button>
+            {error && (
+              <div style={{ marginTop: '10px', padding: '10px', background: '#ffe6e6', borderRadius: '4px', color: '#cc0000', fontSize: '13px' }}>
+                {error}
+              </div>
+            )}
+          </div>
+
+          {tables.length > 0 && (
+            <div>
+              <h4 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>Extracted Tables ({tables.length})</h4>
+              {tables.map(table => (
+                <div key={table.id} style={{
+                  padding: '15px',
+                  background: 'white',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  marginBottom: '10px'
+                }}>
+                  <div
+                    style={{ fontWeight: 600, marginBottom: '5px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    onClick={() => setExpandedTable(expandedTable === table.id ? null : table.id)}
+                  >
+                    <span>{table.caption || `Table ${table.id}`}</span>
+                    <span style={{ fontSize: '12px', color: '#7f8c8d' }}>
+                      {expandedTable === table.id ? '▼' : '▶'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: expandedTable === table.id ? '10px' : '0' }}>
+                    Page {table.page} • {table.rowCount || table.rows?.length || 0} rows × {table.colCount || table.headers?.length || 0} columns
+                  </div>
+
+                  {expandedTable === table.id && table.raw && (
+                    <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr>
+                            {(table.headers || []).map((header, idx) => (
+                              <th key={idx} style={{
+                                padding: '8px',
+                                background: 'var(--primary)',
+                                color: 'white',
+                                border: '1px solid var(--border)',
+                                textAlign: 'left'
+                              }}>
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(table.rows || []).map((row, rowIdx) => (
+                            <tr key={rowIdx}>
+                              {row.map((cell, cellIdx) => (
+                                <td key={cellIdx} style={{
+                                  padding: '8px',
+                                  border: '1px solid var(--border)',
+                                  background: rowIdx % 2 === 0 ? '#f9f9f9' : 'white'
+                                }}>
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function FiguresInterface({ pdfDoc, pdfFile, figures, onFiguresExtracted }) {
+      const [isExtracting, setIsExtracting] = useState(false);
+      const [error, setError] = useState(null);
+      const [selectedFigure, setSelectedFigure] = useState(null);
+
+      const extractFigures = async () => {
+        if (!pdfFile) {
+          setError('Please upload a PDF file first');
+          return;
+        }
+        setIsExtracting(true);
+        setError(null);
+
+        try {
+          // Convert PDF to base64
+          const arrayBuffer = await pdfFile.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+          );
+
+          // Call Python Cloud Function
+          const response = await fetch('http://127.0.0.1:5001/cerebellar-sdc/us-central1/extract_figures_enhanced', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_base64: base64, min_size: 50, dpi: 150 })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            const extractedFigures = result.figures.map((figure, idx) => ({
+              id: idx + 1,
+              page: figure.page,
+              caption: figure.caption || `Figure ${figure.figure_index + 1}`,
+              imageBase64: figure.image_base64,
+              width: figure.width,
+              height: figure.height,
+              format: figure.format,
+              bbox: figure.bbox
+            }));
+            onFiguresExtracted(extractedFigures);
+            console.log(`✅ Extracted ${extractedFigures.length} figures`);
+          } else {
+            throw new Error(result.error || 'Figure extraction failed');
+          }
+        } catch (error) {
+          console.error('Figure extraction error:', error);
+          setError(error.message);
+        } finally {
+          setIsExtracting(false);
+        }
+      };
+
+      return (
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>🖼️ Figure Extraction</h3>
+            <p style={{ fontSize: '13px', color: '#7f8c8d', marginBottom: '15px' }}>
+              Extract figures, images, and diagrams from the PDF with automatic caption detection.
+            </p>
+            <button
+              onClick={extractFigures}
+              disabled={!pdfFile || isExtracting}
+              style={{
+                padding: '10px 20px',
+                background: 'var(--primary)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: pdfFile && !isExtracting ? 'pointer' : 'not-allowed',
+                opacity: pdfFile && !isExtracting ? 1 : 0.6
+              }}
+            >
+              {isExtracting ? 'Extracting...' : 'Extract Figures'}
+            </button>
+            {error && (
+              <div style={{ marginTop: '10px', padding: '10px', background: '#ffe6e6', borderRadius: '4px', color: '#cc0000', fontSize: '13px' }}>
+                {error}
+              </div>
+            )}
+          </div>
+
+          {figures.length > 0 && (
+            <div>
+              <h4 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>Extracted Figures ({figures.length})</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
+                {figures.map(figure => (
+                  <div key={figure.id} style={{
+                    padding: '10px',
+                    background: 'white',
+                    border: selectedFigure === figure.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setSelectedFigure(selectedFigure === figure.id ? null : figure.id)}
+                  >
+                    {figure.imageBase64 && (
+                      <img
+                        src={`data:image/png;base64,${figure.imageBase64}`}
+                        alt={figure.caption}
+                        style={{
+                          width: '100%',
+                          height: '120px',
+                          objectFit: 'contain',
+                          background: '#f5f5f5',
+                          borderRadius: '4px',
+                          marginBottom: '8px'
+                        }}
+                      />
+                    )}
+                    <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {figure.caption || `Figure ${figure.id}`}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#7f8c8d' }}>
+                      Page {figure.page} • {figure.width}×{figure.height}px
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {selectedFigure && (
+                <div style={{
+                  marginTop: '20px',
+                  padding: '15px',
+                  background: 'white',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px'
+                }}>
+                  <h4 style={{ marginBottom: '10px' }}>Figure Details</h4>
+                  {(() => {
+                    const figure = figures.find(f => f.id === selectedFigure);
+                    if (!figure) return null;
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', gap: '20px' }}>
+                          <div style={{ flex: '0 0 300px' }}>
+                            {figure.imageBase64 && (
+                              <img
+                                src={`data:image/png;base64,${figure.imageBase64}`}
+                                alt={figure.caption}
+                                style={{
+                                  width: '100%',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: '4px'
+                                }}
+                              />
+                            )}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <p><strong>Caption:</strong> {figure.caption || 'No caption detected'}</p>
+                            <p><strong>Page:</strong> {figure.page}</p>
+                            <p><strong>Dimensions:</strong> {figure.width} × {figure.height} pixels</p>
+                            <p><strong>Format:</strong> {figure.format || 'Unknown'}</p>
+                            {figure.bbox && (
+                              <p><strong>Bounding Box:</strong> [{figure.bbox.map(v => v.toFixed(1)).join(', ')}]</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ExtractionForm({ data, highlights, pdfFile, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect, validationErrors = [], validationWarnings = [], isValidating = false, lastValidationTime = null }) {
       const currentPath = FIELD_MAP[currentField];
-      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false });
+      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false, analysis: false, validation: false });
       const toggle = (sec) => setCollapsed(prev => ({ ...prev, [sec]: !prev[sec] }));
 
       const Input = ({ label, path, type = "text", rows }) => {
@@ -1851,6 +2425,84 @@
 
       return (
         <div className="extraction-form-container">
+          {/* Real-time Validation Status Panel */}
+          {(validationErrors.length > 0 || validationWarnings.length > 0 || isValidating) && (
+            <div className="validation-panel" style={{
+              marginBottom: '15px',
+              padding: '12px 15px',
+              borderRadius: '6px',
+              background: validationErrors.length > 0 ? '#fff5f5' : validationWarnings.length > 0 ? '#fffaf0' : '#f0f9ff',
+              border: `1px solid ${validationErrors.length > 0 ? '#feb2b2' : validationWarnings.length > 0 ? '#fbd38d' : '#90cdf4'}`
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: validationErrors.length + validationWarnings.length > 0 ? '8px' : '0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isValidating ? (
+                    <>
+                      <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#3182ce' }}>Validating...</span>
+                    </>
+                  ) : validationErrors.length > 0 ? (
+                    <>
+                      <span>❌</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#c53030' }}>
+                        {validationErrors.length} Validation Error{validationErrors.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  ) : validationWarnings.length > 0 ? (
+                    <>
+                      <span>⚠️</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#c05621' }}>
+                        {validationWarnings.length} Warning{validationWarnings.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>✅</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#2f855a' }}>Validated</span>
+                    </>
+                  )}
+                </div>
+                {lastValidationTime && (
+                  <span style={{ fontSize: '10px', color: '#718096' }}>Last checked: {lastValidationTime}</span>
+                )}
+              </div>
+
+              {validationErrors.length > 0 && (
+                <div style={{ marginBottom: validationWarnings.length > 0 ? '8px' : '0' }}>
+                  {validationErrors.map((err, idx) => (
+                    <div key={idx} style={{
+                      fontSize: '11px',
+                      color: '#c53030',
+                      padding: '4px 8px',
+                      background: '#fed7d7',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      • {err}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {validationWarnings.length > 0 && (
+                <div>
+                  {validationWarnings.map((warn, idx) => (
+                    <div key={idx} style={{
+                      fontSize: '11px',
+                      color: '#c05621',
+                      padding: '4px 8px',
+                      background: '#feebc8',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      • {warn}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="form-section">
             <div className="section-header" onClick={() => toggle('meta')}>
               <div className="section-title">🆔 Study Identification</div>
@@ -1948,10 +2600,10 @@
             </div>
           )}
 
-          {highlights.length > 0 && (
+          {(highlights[pdfFile] || []).length > 0 && (
             <div className="annotations-container">
               <h3 style={{ fontSize: '12px', fontWeight: 600, color: '#777', marginBottom: '10px', marginTop: '20px' }}>CAPTURED SNIPPETS</h3>
-              {highlights.map(h => (
+              {(highlights[pdfFile] || []).map(h => (
                 <div key={h.id} className="annotation-card" onClick={() => onGoToHighlight(h.page)}>
                   <strong>{h.field} (Pg {h.page})</strong>
                   <p>{h.text}</p>
@@ -1959,6 +2611,79 @@
               ))}
             </div>
           )}
+
+          {/* Analysis Section */}
+          <div className="form-section">
+            <div className="section-header" onClick={() => toggle('analysis')}>
+              <span className="section-title">
+                <Icons.Activity size={16} style={{ marginRight: 6 }} />
+                📊 Quality Analysis
+              </span>
+              <Icons.ChevronDown size={16} style={{ transform: collapsed.analysis ? 'rotate(-90deg)' : '', transition: 'transform 0.2s' }} />
+            </div>
+            <div className={`section-body ${collapsed.analysis ? 'collapsed' : ''}`}>
+              <div style={{ padding: '10px', background: '#f8f9fa', borderRadius: '4px', marginBottom: '15px' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', color: 'var(--secondary)' }}>
+                  Extraction Quality Report
+                </h4>
+                <p style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '10px' }}>
+                  Automated quality checks using the 3-layer critique system (Layer 1: Math validators, Layer 2: Semantic logic, Layer 3: Evidence anchoring).
+                </p>
+                <button
+                  onClick={onQualityCheck}
+                  style={{
+                    padding: '8px 16px',
+                    background: 'var(--primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600
+                  }}
+                >
+                  <Icons.Activity size={12} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                  Run Quality Analysis
+                </button>
+              </div>
+
+              <div style={{ marginTop: '15px' }}>
+                <h5 style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--secondary)' }}>
+                  Completeness Check
+                </h5>
+                <div style={{ fontSize: '12px', color: '#555' }}>
+                  {[
+                    { label: 'Metadata', fields: ['study_id', 'authors', 'year', 'title'], icon: '📋' },
+                    { label: 'Population', fields: ['population.sample_size', 'population.mean_age'], icon: '👥' },
+                    { label: 'Intervention', fields: ['intervention.procedure', 'intervention.technique'], icon: '⚕️' },
+                    { label: 'Outcomes', fields: ['outcomes.mortality', 'outcomes.mRS_favorable'], icon: '📊' }
+                  ].map((section, idx) => {
+                    const completedCount = section.fields.filter(field => {
+                      const keys = field.split('.');
+                      let val = data;
+                      for (const key of keys) val = val?.[key];
+                      return val && val !== '';
+                    }).length;
+                    const total = section.fields.length;
+                    const pct = Math.round((completedCount / total) * 100);
+                    return (
+                      <div key={idx} style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{section.icon} {section.label}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '100px', height: '6px', background: '#eee', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? 'var(--success)' : 'var(--accent)' }} />
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: pct === 100 ? 'var(--success)' : '#7f8c8d' }}>
+                            {completedCount}/{total}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="panel-footer" style={{ marginTop: 20, padding: 0, borderTop: 'none' }}>
             <button className="action-btn btn-export-json" onClick={onExport}>Download JSON</button>
@@ -1970,8 +2695,9 @@
     function PDFPanel({
       pdfFile, pdfDoc, pageNum, numPages, highlights,
       currentField, selectionMode, onFileUpload, onPageChange,
-      onFieldSelect, onSelectionModeToggle, onAddHighlight,
-      citationHighlights, activeCitation, onCitationClick, onViewportChange
+      onFieldSelect, onSelectionModeToggle, onAddHighlight, onClearHighlights,
+      citationHighlights, activeCitation, onCitationClick, onViewportChange,
+      availablePDFs, selectedPDFDropdown, onPDFDropdownChange
     }) {
       const canvasRef = useRef(null);
       const [scale, setScale] = useState(1.2);
@@ -2058,10 +2784,37 @@
         <div className="pdf-panel">
           <div className="pdf-header">
             <h2>📄 PDF Explorer</h2>
-            <label className="file-upload-btn">
-              Upload PDF
-              <input type="file" accept=".pdf" onChange={e => onFileUpload(e.target.files[0])} />
-            </label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={selectedPDFDropdown}
+                onChange={e => onPDFDropdownChange(e.target.value)}
+                style={{
+                  padding: '8px 12px',
+                  background: '#f8f9fa',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  minWidth: '150px'
+                }}
+              >
+                <option value="">Select from Library</option>
+                {availablePDFs.map((pdf, idx) => {
+                  const highlightCount = (highlights[pdf.filename] || []).length;
+                  const badge = highlightCount > 0 ? ` (${highlightCount} highlights)` : '';
+                  return (
+                    <option key={idx} value={pdf.filename}>
+                      {pdf.name}{badge}
+                    </option>
+                  );
+                })}
+              </select>
+              <span style={{ color: '#999', fontSize: '12px' }}>or</span>
+              <label className="file-upload-btn">
+                Upload PDF
+                <input type="file" accept=".pdf" onChange={e => handleFileUpload(e.target.files[0])} />
+              </label>
+            </div>
           </div>
 
           {pdfFile && (
@@ -2090,6 +2843,17 @@
             >
               {selectionMode ? '🖍️ Highlighting...' : 'Enable Selection'}
             </button>
+
+            {pdfFile && (highlights[pdfFile] || []).length > 0 && (
+              <button
+                className="control-btn"
+                onClick={onClearHighlights}
+                title={`Clear ${(highlights[pdfFile] || []).length} highlight${(highlights[pdfFile] || []).length !== 1 ? 's' : ''} for this PDF`}
+                style={{ marginLeft: '8px', background: '#e74c3c', color: 'white' }}
+              >
+                🗑️ Clear Highlights ({(highlights[pdfFile] || []).length})
+              </button>
+            )}
           </div>
 
           <div className="pdf-viewer-container">
@@ -2097,8 +2861,8 @@
               <div className="pdf-canvas-wrapper">
                 <canvas ref={canvasRef} id="pdf-canvas" style={{ cursor: selectionMode ? 'crosshair' : 'default' }} />
                 <div className="highlight-layer">
-                  {/* Manual selection highlights (yellow) */}
-                  {highlights.filter(h => h.page === pageNum).map(h => (
+                  {/* Manual selection highlights (yellow) with tooltips showing field name */}
+                  {(highlights[pdfFile] || []).filter(h => h.page === pageNum).map(h => (
                     <div key={h.id} className="highlight"
                       style={{ left: h.rect.left, top: h.rect.top, width: h.rect.width, height: h.rect.height }}
                       title={h.field + ": " + h.text} />
@@ -2145,12 +2909,12 @@
   <script type="module">
     import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai';
 
-    // ⚠️ Replace with your actual API key (visible in browser - OK for dev, not for production)
-    const API_KEY = 'GOOGLE_GENAI_API_KEY';
+    // ⚠️ API key visible in browser - OK for dev, not for production
+    const API_KEY = 'AIzaSyA0q3GpEymeImQKwJn3g226CYLncCJaOCc';
 
     // Initialize the Gemini client
     const genAI = new GoogleGenerativeAI(API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
 
     // Example: Hello flow equivalent
     async function helloFlow(name) {

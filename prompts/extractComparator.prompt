@@ -9,7 +9,7 @@ input:
 output:
   schema:
     exists: boolean, Whether a comparator group exists
-    type: string?, One of: Medical Management, EVD Only, Other Surgery, None
+    type: "string?, One of: Medical Management, EVD Only, Other Surgery, None"
     description: string?, Description of comparator
     sampleSize: integer?, Number in comparator group
 ---

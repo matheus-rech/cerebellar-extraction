@@ -8,6 +8,9 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "genkit": "tsx src/genkit.ts",
+    "upload-pdfs": "node scripts/bulk-upload-pdfs.js --emulator",
+    "upload-pdfs:dry-run": "node scripts/bulk-upload-pdfs.js --dry-run",
+    "upload-pdfs:prod": "node scripts/bulk-upload-pdfs.js",
     "test:e2e": "npx playwright test --project=chromium",
     "test:e2e:ui": "npx playwright test --ui",
     "test:e2e:headed": "npx playwright test --headed --project=chromium",
@@ -27,6 +30,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@genkit-ai/dev-local-vectorstore": "^1.24.0",
+    "@genkit-ai/express": "^1.24.0",
     "@genkit-ai/google-genai": "^1.24.0",
     "@genkit-ai/googleai": "^1.24.0",
     "@genkit-ai/mcp": "^1.24.0",

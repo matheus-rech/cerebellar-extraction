@@ -14,6 +14,7 @@ import pLimit from "p-limit";
 import {createRequire} from "module";
 import {Parser} from "json2csv";
 import * as readline from "readline/promises";
+import {startFlowServer} from "@genkit-ai/express";
 import {critiqueExtraction, CritiqueReportSchema, CritiqueMode} from "./critics/index.js";
 import {
   createGroundTruth,
@@ -42,6 +43,19 @@ import {
   type PageText,
   DEFAULT_CHUNKING_OPTIONS,
 } from "./chunking.js";
+
+// Chat module (modularized)
+import {
+  createChatSession,
+  sendChatMessage,
+  getChatHistory,
+  listChatSessions,
+  deleteChatSession,
+  chat,
+  chatWithPDF,
+  type SessionData,
+  type PDFChatState,
+} from "./chat/index.js";
 const require = createRequire(import.meta.url);
 const {PDFParse} = require("pdf-parse");
 
@@ -2413,499 +2427,19 @@ export const batchProcessPDFs = ai.defineFlow(
 );
 
 // ==========================================
-// 10. Chat Session Store (Persistent Conversations)
+// 10. Chat Session Store (Moved to src/chat/)
 // ==========================================
-
-/**
- * Session data structure for persistent storage
- */
-interface SessionData<S = any> {
-  id: string;
-  state?: S;
-  threads: Record<string, Array<{role: "user" | "model"; content: string}>>;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * SessionStore interface for Genkit chat persistence
- */
-interface SessionStore<S = any> {
-  get(sessionId: string): Promise<SessionData<S> | undefined>;
-  save(sessionId: string, sessionData: SessionData<S>): Promise<void>;
-}
-
-/**
- * Local JSON-based SessionStore implementation
- * Stores session data in individual JSON files
- */
-class LocalSessionStore<S = any> implements SessionStore<S> {
-  private sessionsDir: string;
-
-  constructor(baseDir: string = DATA_DIR) {
-    this.sessionsDir = path.join(baseDir, "sessions");
-    if (!fs.existsSync(this.sessionsDir)) {
-      fs.mkdirSync(this.sessionsDir, {recursive: true});
-    }
-  }
-
-  private getFilePath(sessionId: string): string {
-    return path.join(this.sessionsDir, `${sessionId}.json`);
-  }
-
-  async get(sessionId: string): Promise<SessionData<S> | undefined> {
-    try {
-      const filePath = this.getFilePath(sessionId);
-      if (!fs.existsSync(filePath)) {
-        return undefined;
-      }
-      const data = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(data) as SessionData<S>;
-    } catch (error) {
-      console.error(`Failed to load session ${sessionId}:`, error);
-      return undefined;
-    }
-  }
-
-  async save(sessionId: string, sessionData: SessionData<S>): Promise<void> {
-    try {
-      const filePath = this.getFilePath(sessionId);
-      sessionData.updatedAt = new Date().toISOString();
-      fs.writeFileSync(filePath, JSON.stringify(sessionData, null, 2));
-    } catch (error) {
-      console.error(`Failed to save session ${sessionId}:`, error);
-      throw error;
-    }
-  }
-
-  async list(): Promise<string[]> {
-    try {
-      const files = fs.readdirSync(this.sessionsDir);
-      return files
-        .filter((f) => f.endsWith(".json"))
-        .map((f) => f.replace(".json", ""));
-    } catch (error) {
-      console.error("Failed to list sessions:", error);
-      return [];
-    }
-  }
-
-  async delete(sessionId: string): Promise<boolean> {
-    try {
-      const filePath = this.getFilePath(sessionId);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error(`Failed to delete session ${sessionId}:`, error);
-      return false;
-    }
-  }
-}
-
-/**
- * Firestore-based SessionStore implementation
- * For production deployments
- */
-class FirestoreSessionStore<S = any> implements SessionStore<S> {
-  private collection = "chat_sessions";
-
-  async get(sessionId: string): Promise<SessionData<S> | undefined> {
-    const db = await getFirestoreDb();
-    const doc = await db.collection(this.collection).doc(sessionId).get();
-    if (!doc.exists) {
-      return undefined;
-    }
-    return doc.data() as SessionData<S>;
-  }
-
-  async save(sessionId: string, sessionData: SessionData<S>): Promise<void> {
-    const db = await getFirestoreDb();
-    sessionData.updatedAt = new Date().toISOString();
-    await db.collection(this.collection).doc(sessionId).set(sessionData);
-  }
-}
-
-// Global session store instance
-const sessionStore = USE_LOCAL_STORAGE
-  ? new LocalSessionStore()
-  : new FirestoreSessionStore();
-
-/**
- * PDF Chat Session State
- */
-interface PDFChatState {
-  pdfPath: string;
-  pdfFileName: string;
-  pdfTextLength: number;
-  studyTitle?: string;
-  extractedData?: z.infer<typeof CerebellarSDCSchema>;
-}
-
-/**
- * Create or load a chat session for a PDF
- */
-export const createChatSession = ai.defineFlow(
-  {
-    name: "createChatSession",
-    inputSchema: z.object({
-      pdfPath: z.string().describe("Path to the PDF file"),
-      sessionId: z.string().optional().describe("Optional existing session ID to resume"),
-    }),
-    outputSchema: z.object({
-      sessionId: z.string(),
-      isNew: z.boolean(),
-      pdfFileName: z.string(),
-      messageCount: z.number(),
-    }),
-  },
-  async ({pdfPath, sessionId}) => {
-    const absolutePath = path.resolve(pdfPath);
-    const fileName = path.basename(absolutePath);
-
-    // Check for existing session
-    if (sessionId) {
-      const existing = await sessionStore.get(sessionId);
-      if (existing) {
-        const mainThread = existing.threads["main"] || [];
-        console.log(`📂 Resumed session ${sessionId} with ${mainThread.length} messages`);
-        return {
-          sessionId,
-          isNew: false,
-          pdfFileName: (existing.state as PDFChatState)?.pdfFileName || fileName,
-          messageCount: mainThread.length,
-        };
-      }
-    }
-
-    // Load PDF for new session
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`PDF not found: ${absolutePath}`);
-    }
-
-    const dataBuffer = fs.readFileSync(absolutePath);
-    const pdfData = await parsePdf(dataBuffer);
-
-    // Create new session
-    const newSessionId = sessionId || `chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const newSession: SessionData<PDFChatState> = {
-      id: newSessionId,
-      state: {
-        pdfPath: absolutePath,
-        pdfFileName: fileName,
-        pdfTextLength: pdfData.text.length,
-      },
-      threads: {
-        main: [],
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    await sessionStore.save(newSessionId, newSession);
-    console.log(`📝 Created new session ${newSessionId} for ${fileName}`);
-
-    return {
-      sessionId: newSessionId,
-      isNew: true,
-      pdfFileName: fileName,
-      messageCount: 0,
-    };
-  }
-);
-
-/**
- * Send a message in a chat session
- */
-export const sendChatMessage = ai.defineFlow(
-  {
-    name: "sendChatMessage",
-    inputSchema: z.object({
-      sessionId: z.string().describe("Session ID"),
-      message: z.string().describe("User message"),
-      threadId: z.string().default("main").describe("Thread ID within the session"),
-    }),
-    outputSchema: z.object({
-      response: z.string(),
-      messageCount: z.number(),
-    }),
-  },
-  async ({sessionId, message, threadId}) => {
-    // Load session
-    const session = await sessionStore.get(sessionId);
-    if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-
-    const state = session.state as PDFChatState;
-    const thread = session.threads[threadId] || [];
-
-    // Load PDF text for context
-    const pdfBuffer = fs.readFileSync(state.pdfPath);
-    const pdfData = await parsePdf(pdfBuffer);
-    const pdfText = pdfData.text;
-
-    // Build conversation history for the model
-    const systemPrompt = `You are an expert neurosurgical researcher assistant analyzing a medical paper about Suboccipital Decompressive Craniectomy (SDC) for cerebellar stroke.
-
-PAPER: ${state.pdfFileName}
-
-You have access to the full paper text. Answer questions accurately based on the paper content.
-Always cite specific sections when making claims. If information isn't in the paper, say so.
-
----
-PAPER CONTENT:
-${pdfText.slice(0, 50000)}
----`;
-
-    // Build conversation history as prompt
-    const conversationHistory = thread.map((m) =>
-      `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`
-    ).join("\n\n");
-
-    const fullPrompt = conversationHistory
-      ? `${conversationHistory}\n\nUser: ${message}`
-      : `User: ${message}`;
-
-    // Generate response using system prompt and conversation
-    const {text: response} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
-      system: systemPrompt,
-      prompt: fullPrompt,
-    });
-
-    // Update thread with new messages
-    thread.push({role: "user", content: message});
-    thread.push({role: "model", content: response});
-    session.threads[threadId] = thread;
-
-    // Save session
-    await sessionStore.save(sessionId, session);
-
-    return {
-      response,
-      messageCount: thread.length,
-    };
-  }
-);
-
-/**
- * Get chat history for a session
- */
-export const getChatHistory = ai.defineFlow(
-  {
-    name: "getChatHistory",
-    inputSchema: z.object({
-      sessionId: z.string(),
-      threadId: z.string().default("main"),
-    }),
-    outputSchema: z.object({
-      messages: z.array(z.object({
-        role: z.enum(["user", "model"]),
-        content: z.string(),
-      })),
-      state: z.any().nullable(),
-    }),
-  },
-  async ({sessionId, threadId}) => {
-    const session = await sessionStore.get(sessionId);
-    if (!session) {
-      return {messages: [], state: null};
-    }
-
-    return {
-      messages: session.threads[threadId] || [],
-      state: session.state,
-    };
-  }
-);
-
-/**
- * List all chat sessions
- */
-export const listChatSessions = ai.defineFlow(
-  {
-    name: "listChatSessions",
-    inputSchema: z.object({}),
-    outputSchema: z.object({
-      sessions: z.array(z.object({
-        id: z.string(),
-        pdfFileName: z.string(),
-        messageCount: z.number(),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-      })),
-    }),
-  },
-  async () => {
-    if (USE_LOCAL_STORAGE) {
-      const store = sessionStore as LocalSessionStore;
-      const sessionIds = await store.list();
-      const sessions = await Promise.all(
-        sessionIds.map(async (id) => {
-          const session = await store.get(id);
-          if (!session) return null;
-          const state = session.state as PDFChatState;
-          const mainThread = session.threads["main"] || [];
-          return {
-            id,
-            pdfFileName: state?.pdfFileName || "Unknown",
-            messageCount: mainThread.length,
-            createdAt: session.createdAt,
-            updatedAt: session.updatedAt,
-          };
-        })
-      );
-      return {sessions: sessions.filter((s): s is NonNullable<typeof s> => s !== null)};
-    }
-
-    // Firestore implementation would list from collection
-    return {sessions: []};
-  }
-);
-
-/**
- * Simple conversation flow (stateless) - for interactive collaboration with Gemini
- */
-export const chat = ai.defineFlow(
-  {
-    name: "chat",
-    inputSchema: z.object({
-      message: z.string().describe("Your message to Gemini"),
-      context: z.string().optional().describe("Optional context about current task"),
-    }),
-    outputSchema: z.object({
-      response: z.string(),
-    }),
-  },
-  async ({message, context}) => {
-    const systemContext = context || `You are collaborating with a medical researcher on a systematic review of Suboccipital Decompressive Craniectomy (SDC) for cerebellar stroke.
-You have access to a Genkit-powered extraction system with Zod schemas for structured data extraction.
-Be helpful, precise, and provide code examples when relevant.`;
-
-    const {text} = await ai.generate(`${systemContext}\n\nUser: ${message}`);
-    return {response: text};
-  }
-);
-
-/**
- * Interactive PDF Chat - Query a specific PDF document
- * Based on Genkit chat-with-pdf tutorial pattern
- */
-export async function chatWithPDF(pdfPath: string): Promise<void> {
-  // 1. Load and parse the PDF
-  const absolutePath = path.resolve(pdfPath);
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`PDF not found: ${absolutePath}`);
-  }
-
-  console.log(`\n📄 Loading PDF: ${absolutePath}`);
-  const dataBuffer = fs.readFileSync(absolutePath);
-  const pdfData = await parsePdf(dataBuffer);
-  const pdfText = pdfData.text;
-
-  if (!pdfText || pdfText.length < 100) {
-    throw new Error("PDF appears empty or is a scanned image (OCR not supported)");
-  }
-
-  console.log(`   ✅ Loaded ${pdfText.length} characters from ${pdfData.numpages} pages`);
-
-  // 2. Create the system prompt with PDF context
-  const systemPrompt = `You are an expert neurosurgical researcher assistant helping with a systematic review on Suboccipital Decompressive Craniectomy (SDC) for cerebellar stroke.
-
-You have been given the full text of a medical research paper. Your role is to:
-1. Answer questions about this specific paper accurately
-2. Extract data points when asked (demographics, outcomes, surgical techniques)
-3. Identify limitations or potential biases in the study
-4. Compare findings with standard practices when relevant
-5. Always cite the specific section or quote from the paper that supports your answer
-
-IMPORTANT: Only answer based on the content of this paper. If information is not in the paper, say so clearly.
-
----
-PAPER CONTENT:
-${pdfText}
----
-
-Ready to answer questions about this paper.`;
-
-  // 3. Set up readline interface
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  // 4. Initialize conversation history
-  type MessageRole = "user" | "model";
-  const history: Array<{role: MessageRole; content: string}> = [];
-
-  console.log(`\n🧠 Chat session started. Ask questions about the paper.`);
-  console.log(`   Type 'exit' or press Ctrl+C to quit.\n`);
-
-  // Quick extraction prompts
-  console.log(`💡 Quick commands:`);
-  console.log(`   /summary    - Get a brief summary of the study`);
-  console.log(`   /pico       - Extract PICO elements`);
-  console.log(`   /outcomes   - List all reported outcomes`);
-  console.log(`   /quality    - Assess study quality (NOS)`);
-  console.log(`   /extract    - Run full structured extraction\n`);
-
-  // 5. Interactive chat loop
-  while (true) {
-    const userInput = await rl.question("You: ");
-
-    if (userInput.toLowerCase() === "exit" || userInput.toLowerCase() === "quit") {
-      console.log("\n👋 Chat session ended.");
-      rl.close();
-      break;
-    }
-
-    // Handle quick commands
-    let prompt = userInput;
-    if (userInput === "/summary") {
-      prompt = "Provide a brief summary of this study in 3-4 sentences, including: study design, sample size, main intervention, and key findings.";
-    } else if (userInput === "/pico") {
-      prompt = "Extract the PICO elements from this study: Population (who was studied, inclusion/exclusion criteria), Intervention (what surgical procedure), Comparator (if any control group), Outcomes (primary and secondary outcomes measured).";
-    } else if (userInput === "/outcomes") {
-      prompt = "List all reported outcomes from this study, including: mortality rates, functional outcomes (GOS, mRS), complications, and any other measured endpoints. Include the specific values and timepoints.";
-    } else if (userInput === "/quality") {
-      prompt = "Assess the methodological quality of this study using the Newcastle-Ottawa Scale criteria: Selection (4 items), Comparability (2 items), Outcome (3 items). Provide scores and rationale for each.";
-    } else if (userInput === "/extract") {
-      prompt = `Extract all data fields needed for meta-analysis:
-1. Study Metadata: Authors, year, journal, hospital, study period
-2. Population: Sample size, age (mean±SD), GCS scores, diagnosis, hydrocephalus %
-3. Intervention: Procedure details, timing, EVD use, duraplasty
-4. Comparator: If present, describe the control group
-5. Outcomes: Mortality (with timepoint), mRS outcomes (with definition), complications, length of stay
-6. Quality: Newcastle-Ottawa Scale assessment
-
-For each numeric value, provide the exact quote from the paper.`;
-    }
-
-    try {
-      // Add user message to history
-      history.push({role: "user", content: prompt});
-
-      // Generate response with conversation history
-      const {text} = await ai.generate({
-        system: systemPrompt,
-        messages: history.map(msg => ({
-          role: msg.role,
-          content: [{text: msg.content}],
-        })),
-      });
-
-      // Add assistant response to history
-      history.push({role: "model", content: text});
-
-      console.log(`\nGemini: ${text}\n`);
-    } catch (error) {
-      console.error(`\n❌ Error: ${error instanceof Error ? error.message : String(error)}\n`);
-    }
-  }
-}
+// Chat functionality has been modularized into src/chat/
+// - session-store.ts: SessionStore interface and implementations
+// - tools.ts: RAG-powered chat tools
+// - flows.ts: Chat flows with tool integration
+// - index.ts: Module entry point
+//
+// Re-exported from ./chat/index.js:
+// - createChatSession, sendChatMessage, getChatHistory
+// - listChatSessions, deleteChatSession, chat, chatWithPDF
+// - SessionData, PDFChatState types
+// ==========================================
 
 // ==========================================
 // 4. CLI Entry Point
@@ -3423,6 +2957,54 @@ What's the best next step for production use?`;
         });
       }
     });
+  } else if (command === "serve") {
+    // Start HTTP server exposing Genkit flows
+    const port = parseInt(args[1]) || 3400;
+    const cors = args.includes("--cors");
+
+    console.log(`
+🚀 Starting Genkit Flow Server
+   Port: ${port}
+   CORS: ${cors ? "enabled" : "disabled"}
+   Storage: ${USE_LOCAL_STORAGE ? "LOCAL" : "FIRESTORE"}
+`);
+
+    // Start the server with selected flows
+    startFlowServer({
+      port,
+      cors: cors ? {origin: "*"} : undefined,
+      flows: [
+        // Chat flows
+        createChatSession,
+        sendChatMessage,
+        getChatHistory,
+        listChatSessions,
+        deleteChatSession,
+        // Extraction flows
+        extractStudyData,
+        checkAndSaveStudy,
+        listStudies,
+        searchSimilarStudies,
+        // Evaluation flows
+        evaluateExtraction,
+        critiqueExtraction,
+      ],
+    });
+
+    console.log(`\n📡 Available endpoints:`);
+    console.log(`   POST /createChatSession   - Create new chat session`);
+    console.log(`   POST /sendChatMessage     - Send message and get response`);
+    console.log(`   POST /getChatHistory      - Get session history`);
+    console.log(`   POST /listChatSessions    - List all sessions`);
+    console.log(`   POST /deleteChatSession   - Delete a session`);
+    console.log(`   POST /extractStudyData    - Extract structured data from PDF text`);
+    console.log(`   POST /checkAndSaveStudy   - Save extracted study with validation`);
+    console.log(`   POST /listStudies         - List all stored studies`);
+    console.log(`   POST /searchSimilarStudies - Semantic search across studies`);
+    console.log(`   POST /evaluateExtraction  - Run quality evaluation`);
+    console.log(`   POST /critiqueExtraction  - Run critique/reflector validation`);
+    console.log(`\n✅ Server running at http://localhost:${port}`);
+    console.log(`   Press Ctrl+C to stop\n`);
   } else if (command === "help") {
     console.log(`
 🧠 Cerebellar SDC Extraction System
@@ -3430,6 +3012,7 @@ Storage: ${USE_LOCAL_STORAGE ? "LOCAL (./data/studies.json)" : "FIRESTORE"}
 MCP: genkit-cerebellar (exposing ${Object.keys({extractStudyData, checkAndSaveStudy, listStudies, searchSimilarStudies, evaluateExtraction}).length} flows)
 
 Commands:
+  serve [port] [--cors]    - Start HTTP server for frontend integration
   chat [message]           - Collaborate with Gemini 3 Pro
   pdf <file>               - Interactive chat with a specific PDF
   extract <text>           - Extract structured data from PDF text
@@ -3472,6 +3055,7 @@ Evaluation Dataset Workflow:
   Phase 3: Expert     - 50 papers with inter-rater reliability
 
 Examples:
+  npm run genkit serve 3400 --cors   # Start server for frontend
   npm run genkit chat "How should I handle multicenter studies?"
   npm run genkit pdf ./pdfs/smith2022.pdf
   npm run genkit eval ./pdfs/smith2022.pdf
@@ -3493,3 +3077,16 @@ main().catch(console.error);
 
 // Exports for use in other modules
 export {ai};
+
+// Re-export chat module (modularized into src/chat/)
+export {
+  createChatSession,
+  sendChatMessage,
+  getChatHistory,
+  listChatSessions,
+  deleteChatSession,
+  chat,
+  chatWithPDF,
+  type SessionData,
+  type PDFChatState,
+} from "./chat/index.js";
