@@ -74,10 +74,42 @@ Prompts use YAML front matter for model config and Handlebars templating. Edit p
 
 **Critique/Reflector Agent System**: 3-layer validation architecture for quality control:
 - Layer 1: Programmatic gates (8 instant checks: age, GCS, percentages, NOS scores)
-- Layer 2: 8 specialized LLM critics running in parallel (math consistency, scale inversion, EVD confounding, etc.)
+- Layer 2: 8 specialized LLM critics with retry logic (exponential backoff, jitter, 3 retries)
 - Layer 3: Evidence anchoring (verifies 12 VerifiableFields have source quotes)
 - Two modes: AUTO (batch processing with auto-correct) and REVIEW (manual review with suggestions)
 - Toggle via `CRITIQUE_MODE` environment variable or per-call `--mode` flag
+
+**Multi-Agent Critic System** (`src/critics/multi_agent.ts`):
+
+- Triage orchestrator determines which critics to dispatch based on data availability
+- Specialized critic agents with inter-agent communication (shareFinding, readFindings, crossReference tools)
+- Synthesizer agent aggregates findings and detects consensus vs disagreements
+- Agents: mathConsistency, scaleInversion, sourceCitation (with more in development)
+- Run via `multiAgentCritique` flow for advanced validation workflows
+
+**Advanced Evaluators** (`src/evaluators.ts`):
+
+Four specialized evaluators with weighted scoring:
+
+- **Faithfulness** (30%): Measures extraction fidelity to source text
+- **Answer Relevancy** (15%): Validates data relevance to SDC schema
+- **Hallucination Detection** (30%): Detects fabricated medical data (critical for clinical research)
+- **Clinical Accuracy** (25%): Domain-specific validation (scale interpretation, medical terminology, clinical logic)
+- Run via `runAllEvaluators` flow, returns composite score with pass/fail threshold (≥0.7)
+
+**Chat Sessions** (`createChatSession`, `sendChatMessage`, `getChatHistory`, `listChatSessions` flows):
+
+- Persistent multi-threaded conversations with PDF papers
+- SessionStore interface with LocalSessionStore (JSON files) and FirestoreSessionStore implementations
+- System prompt includes PDF content (first 50k chars) for context-aware responses
+- Thread support for multiple conversation contexts within same session
+
+**Figure Analysis** (`analyzeFigure`, `analyzeFigures` flows):
+
+- Gemini vision-based extraction from figures/charts in PDFs
+- FigureDataSchema supports 14 types: flowchart, bar_chart, kaplan_meier, CT scan, etc.
+- Batch processing with concurrency control (pLimit)
+- Extracts: figure type, caption, data points with confidence scores, clinical relevance
 
 ### 2. Web Frontend (`public/index.html`)
 Single-file React app (3,400+ lines) with CDN-based React 18 and in-browser Babel JSX transformation.
@@ -209,7 +241,10 @@ Three-layer validation system for quality control:
 - NOS score validation (0-9 total, components sum correctly)
 - Comparator sampleSize null check
 
-**Layer 2: Specialized LLM Critics** (parallel execution)
+**Layer 2: Specialized LLM Critics** (parallel execution with retry logic)
+
+All Layer 2 critics use exponential backoff retry pattern:
+
 1. `mathConsistencyChecker` - Percentage/N mismatches, subgroup sums
 2. `scaleInversionSentinel` - mRS vs GOS confusion (0=good vs 1=death)
 3. `etiologySegregator` - Infarction vs hemorrhage outcome segregation
@@ -218,6 +253,15 @@ Three-layer validation system for quality control:
 6. `surgicalTechniqueClassifier` - Duraplasty, C1 laminectomy documentation
 7. `outcomeDefinitionVerifier` - mRS cutoff clarity (0-2 vs 0-3), mortality timepoint
 8. `sourceCitationVerifier` - Extracted values match source quotes
+
+**Retry Configuration** (`withRetry` utility in `src/critics/layer2_logic.ts`):
+
+- Max retries: 3 attempts
+- Initial delay: 1000ms
+- Max delay: 10000ms
+- Backoff multiplier: 2x
+- Jitter: Random 0-500ms added to delay
+- Retryable errors: 429 (rate limit), 500/503 (server errors), timeouts
 
 **Layer 3: Evidence Anchoring**
 - Verifies 12 VerifiableFields have source quotes (minimum 10 characters)
@@ -343,7 +387,7 @@ npx genkit start -- node dist/genkit.js
 # - Telemetry: http://localhost:4036
 ```
 
-### Available Genkit Flows (24 total)
+### Available Genkit Flows (32+ total)
 
 | Flow | Purpose |
 |------|---------|
@@ -356,6 +400,7 @@ npx genkit start -- node dist/genkit.js
 | `extractQuality` | Newcastle-Ottawa Scale assessment |
 | `critiqueExtraction` | Main critique orchestrator - runs 3-layer validation with human review interrupt |
 | `quickCritique` | Fast Layer 1 + Layer 3 validation for real-time UI feedback |
+| `multiAgentCritique` | Multi-agent critic system with triage, inter-agent communication, synthesis |
 | `mathConsistencyChecker` | Detects percentage/N mismatches, subgroup sum errors |
 | `scaleInversionSentinel` | Catches mRS vs GOS confusion (#1 error) |
 | `etiologySegregator` | Verifies infarction vs hemorrhage segregation |
@@ -364,13 +409,20 @@ npx genkit start -- node dist/genkit.js
 | `surgicalTechniqueClassifier` | Verifies duraplasty, C1 laminectomy documentation |
 | `outcomeDefinitionVerifier` | Checks mRS cutoff and mortality timepoint clarity |
 | `sourceCitationVerifier` | Verifies extracted values match source quotes |
+| `runAllEvaluators` | Composite evaluation (Faithfulness, Relevancy, Hallucination, Clinical) |
+| `createChatSession` | Create or resume PDF chat session with thread support |
+| `sendChatMessage` | Send message in chat session (includes PDF context in prompt) |
+| `getChatHistory` | Retrieve chat history for a session/thread |
+| `listChatSessions` | List all active chat sessions |
+| `analyzeFigure` | Gemini vision-based figure/chart extraction from PDF page |
+| `analyzeFigures` | Batch figure analysis with concurrency control |
 | `checkAndSaveStudy` | Validate and save to storage (with optional critique) |
 | `listStudies` | List stored studies |
 | `searchSimilarStudies` | RAG semantic search |
-| `evaluateExtraction` | Quality evaluation |
+| `evaluateExtraction` | Legacy quality evaluation (4 evaluators) |
 | `exportDatasetToCSV` | Export to CSV |
-| `batchProcessPDFs` | Batch processing |
-| `chat` | Interactive chat |
+| `batchProcessPDFs` | Batch processing with parallel execution |
+| `chat` | Interactive chat with PDF |
 
 ### MCP Configuration
 
@@ -424,6 +476,33 @@ curl -X POST http://localhost:3101/api/runAction \
   -H "Content-Type: application/json" \
   -d '{"key":"/flow/listStudies","input":{}}'
 ```
+
+## Testing
+
+### End-to-End Tests (Playwright)
+
+```bash
+npm run test:e2e              # Run all E2E tests (headless)
+npm run test:e2e:ui           # Run tests with Playwright UI
+npm run test:e2e:headed       # Run tests in headed browser
+npm run test:e2e:debug        # Run tests in debug mode
+```
+
+**Test Files** (in root directory):
+
+- `test_features.py` - Frontend feature tests (4 tabs, dynamic fields)
+- `test_dropdown.py` - Study arm selector integration tests
+- `test_console.py` - Browser console error detection
+- `test_citation_jump.py` - Citation navigation tests
+- `test_tooltip.py` - UI tooltip functionality
+
+**Testing Strategy**:
+
+- Use Playwright for frontend E2E tests
+- Test 4-tab architecture (Form, Tables, Figures, Chat)
+- Validate dynamic field add/remove/update flows
+- Verify linked selector system (study arms → mortality/mRS/complications)
+- Check console for errors during critical workflows
 
 ## Environment
 
