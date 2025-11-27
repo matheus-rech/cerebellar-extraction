@@ -45,3 +45,10 @@ __pycache__/
 venv/
 ENV/
 env/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

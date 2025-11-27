@@ -1,0 +1,13 @@
+## Use MCP tools
+
+After installing the MCP server you want to use, the tools or data it provides are available in:
+- Gemini CLI
+- Interactive chat when using Agent mode and Agent (Auto-run)
+modes
+- the App Prototyping agent
+For example, if you add the Firebase MCP server, you could ask Gemini to fetch the SDK config for the current project, retrieve data stored in Cloud Firestore and Realtime Database, help you set up Firebase services, [and more](https://firebase.google.com/docs/cli/mcp-server?authuser=2).
+In interactive chat, type / to see a list of available [MCP prompts](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts).
+
+```
+/
+```

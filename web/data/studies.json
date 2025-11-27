@@ -1,0 +1,786 @@
+[
+  {
+    "id": "study_1764204958790",
+    "metadata": {
+      "title": "Preventive Suboccipital Decompressive Craniectomy for Cerebellar Infarction",
+      "firstAuthor": "Myeong Jin Kim",
+      "publicationYear": 2016,
+      "journal": "Stroke",
+      "hospitalCenter": "Gachon University Gil Medical Center",
+      "studyPeriod": "March 2007 - September 2015",
+      "studyDesign": "Retrospective"
+    },
+    "population": {
+      "sampleSize": 28,
+      "age": {
+        "mean": {
+          "value": 59,
+          "sourceText": "Age, mean±SD 59.0±11.6",
+          "pageNumber": 5
+        },
+        "sd": {
+          "value": 11.6,
+          "sourceText": "Age, mean±SD 59.0±11.6",
+          "pageNumber": 5
+        },
+        "range": "null"
+      },
+      "gcs": {
+        "admissionMean": {
+          "value": 12.1,
+          "sourceText": "Initial GCS score, mean±SD 12.1±4.1",
+          "pageNumber": 5
+        },
+        "preOpMean": {
+          "value": 12.1,
+          "sourceText": "Initial GCS score, mean±SD 12.1±4.1",
+          "pageNumber": 5
+        }
+      },
+      "hydrocephalus": {
+        "value": 50,
+        "sourceText": "A unilateral EVD on the parieto-occipital point was usually set up before SDC for hydrocephalus and was performed in 14 (50.0%) patients in this study.",
+        "pageNumber": 2
+      },
+      "diagnosis": "Cerebellar infarction",
+      "inclusionCriteria": [
+        "(1) the presence of cerebellar infarction",
+        "(2) initial Glasgow Coma Scale (GCS) score ≥9",
+        "(3) without clinical deterioration (no GCS score changes) within 72 hours from onset",
+        "(4) a cerebellar infarction volume ratio between 0.25 and 0.33 on initial or routine follow-up radiographic findings (within 72 hours of onset)"
+      ]
+    },
+    "intervention": {
+      "procedure": "Preventive Suboccipital Decompressive Craniectomy (SDC)",
+      "technique": {
+        "value": "Bilateral SDC with opening of the foramen magnum (even for unilateral infarction), extending margins to transverse and lateral sinuses. Dura opened in a large Y incision. Decompressive resection of infarcted cerebellum performed in 57.1% of patients.",
+        "sourceText": "Bilateral SDC with the opening of the foramen magnum was performed for all patients, even those with unilateral infarction. The upper and lateral margin of SDC extended as close as possible to the transverse and lateral sinuses. The dura was opened in a large Y incision. As the dura was opened and the infarcted brain began herniating outward, decompressive resection of the infarcted cerebellum was performed in 16 of 28 patients (57.1%).",
+        "pageNumber": 2
+      },
+      "evdUsed": {
+        "value": true,
+        "sourceText": "A unilateral EVD on the parieto-occipital point was usually set up before SDC for hydrocephalus and was performed in 14 (50.0%) patients in this study.",
+        "pageNumber": 2
+      },
+      "duraplasty": {
+        "value": true,
+        "sourceText": "Duroplasty used an artificial dura.",
+        "pageNumber": 2
+      },
+      "timingToSurgery": {
+        "value": 72,
+        "sourceText": "Among them, 28 patients underwent preventive SDC with the following criteria: ... (3) without clinical deterioration (no GCS score changes) within 72 hours from onset; and (4) a cerebellar infarction volume ratio ... on initial or routine follow-up radiographic findings (within 72 hours of onset)",
+        "pageNumber": 2
+      },
+      "additionalDetails": "Surgery performed in park-bench (three quarter) or prone position with head fixed in a three-pin fixator. Decompressive resection of the infarcted cerebellum was performed in 16 of 28 patients (57.1%)."
+    },
+    "comparator": {
+      "exists": true,
+      "type": "Medical Management",
+      "description": "Propensity score-matched control group of patients with cerebellar infarction who did not undergo preventive suboccipital decompressive craniectomy (SDC) but received best medical management.",
+      "sampleSize": 56
+    },
+    "outcomes": {
+      "mortality": {
+        "value": "Group A: 1 death; Group B: 5 deaths",
+        "sourceText": "At discharge, 18 (64.3%) of the 28 patients in group A showed favorable outcomes with 1 death, whereas 27 (48.2%) of 56 patients in group B showed favorable outcomes with 5 deaths",
+        "pageNumber": 4
+      },
+      "mRS_favorable": {
+        "value": "Group A: 18 (66.7%); Group B: 26 (51.0%)",
+        "sourceText": "At the 12-month follow-up, 18 (66.7%) of the 27 patients in group A showed favorable outcomes, whereas 26 (51.0%) of the 51 patients in group B showed favorable outcomes",
+        "pageNumber": 4
+      },
+      "complications": [
+        "Cerebrospinal fluid leakage requiring dura repair",
+        "Brain stem compression",
+        "Pneumonia sepsis",
+        "Sudden death (possibly cardiac)",
+        "Hemorrhagic transformation"
+      ],
+      "lengthOfStay": {
+        "value": 0,
+        "sourceText": "null",
+        "pageNumber": 1
+      },
+      "allOutcomes": [
+        {
+          "measureName": "Modified Rankin Scale (mRS)",
+          "timepoint": "Discharge",
+          "resultValue": "Group A: 18 (64.3%) favorable; Group B: 27 (48.2%) favorable",
+          "definition": "mRS 0-2 (Favorable) vs mRS 3-6 (Unfavorable)",
+          "sourceText": "At discharge, 18 (64.3%) of the 28 patients in group A showed favorable outcomes with 1 death, whereas 27 (48.2%) of 56 patients in group B showed favorable outcomes with 5 deaths"
+        },
+        {
+          "measureName": "Modified Rankin Scale (mRS)",
+          "timepoint": "12-month follow-up",
+          "resultValue": "Group A: 18 (66.7%) favorable; Group B: 26 (51.0%) favorable",
+          "definition": "mRS 0-2 (Favorable) vs mRS 3-6 (Unfavorable)",
+          "sourceText": "At the 12-month follow-up, 18 (66.7%) of the 27 patients in group A showed favorable outcomes, whereas 26 (51.0%) of the 51 patients in group B showed favorable outcomes"
+        },
+        {
+          "measureName": "Mortality",
+          "timepoint": "Discharge",
+          "resultValue": "Group A: 1 death; Group B: 5 deaths",
+          "definition": "Death",
+          "sourceText": "At discharge, 18 (64.3%) of the 28 patients in group A showed favorable outcomes with 1 death, whereas 27 (48.2%) of 56 patients in group B showed favorable outcomes with 5 deaths"
+        },
+        {
+          "measureName": "Mortality",
+          "timepoint": "12-month follow-up",
+          "resultValue": "Group B had more deaths than group A (P<0.05)",
+          "definition": "Death",
+          "sourceText": "Group B had more deaths within 12 months than group A (log-rank, P<0.05)."
+        },
+        {
+          "measureName": "Procedure-related complications (CSF leakage)",
+          "timepoint": "Post-operative",
+          "resultValue": "2 (7.1%) in Group A",
+          "definition": "Requiring additional surgery for dura repair",
+          "sourceText": "Procedure-related complications in group A occurred in 2 (7.1%) patients who underwent additional surgery for dura repair for cerebrospinal fluid leakage."
+        },
+        {
+          "measureName": "Hemorrhagic transformation",
+          "timepoint": "Post-recanalization",
+          "resultValue": "5 patients (2 in group A and 3 in group B)",
+          "definition": "Hemorrhagic transformation after recanalization",
+          "sourceText": "There were no complications related to recanalization procedures except for hemorrhagic transformation after recanalization in 5 patients (2 in group A and 3 in group B)."
+        }
+      ]
+    },
+    "quality": {
+      "selectionScore": 3,
+      "comparabilityScore": 2,
+      "outcomeScore": 3,
+      "totalScore": 8,
+      "qualityRating": "Good",
+      "selectionJustification": "S1 (0): The exposed cohort represents a selected group. While drawn from a database, the authors acknowledge selection bias where some eligible patients refused surgery or were not selected by surgeons, meaning it is not a truly representative consecutive series of all eligible patients.\nS2 (1): The non-exposed cohort was drawn from the same prospectively collected database from the same 5 hospitals during the same time period.\nS3 (1): Exposure (surgery) was ascertained from secure hospital medical records/database.\nS4 (1): The study excluded patients with pre-existing disability (mRS ≥1) prior to the stroke, ensuring the outcome of interest (functional decline/poor outcome) was not present at baseline.",
+      "comparabilityJustification": "C1 (1): The study controlled for GCS (the most important factor) via propensity score matching.\nC2 (1): The study controlled for additional factors including Age, Sex, and NIHSS score through propensity score matching and multivariate logistic regression adjustment.",
+      "outcomeJustification": "O1 (1): Outcome assessment was performed by independent investigators who were blinded to the study data.\nO2 (1): Follow-up was 12 months, which is adequate for functional recovery assessment.\nO3 (1): Follow-up rates were high (>90%) in the matched cohorts (27/28 in exposed, 51/56 in unexposed).",
+      "biasNotes": "The study is retrospective and subject to selection bias regarding who received the preventive surgery, which the authors acknowledge (S1=0). However, the use of propensity score matching, blinded outcome assessment, and high follow-up rates suggests a low risk of bias in other domains, resulting in a 'Good' quality rating overall."
+    },
+    "citations": [
+      {
+        "authors": "Jauch EC, Saver JL, Adams HP Jr, Bruno A, Connors JJ, Demaerschalk BM, et al; American Heart Association Stroke Council; Council on Cardiovascular Nursing; Council on Peripheral Vascular Disease; Council on Clinical Cardiology",
+        "title": "Guidelines for the early management of patients with acute ischemic stroke: a guideline for healthcare professionals from the American Heart Association/American Stroke Association",
+        "journal": "Stroke",
+        "year": "2013",
+        "raw_text": "1. Jauch EC, Saver JL, Adams HP Jr, Bruno A, Connors JJ, Demaerschalk BM, et al; American Heart Association Stroke Council; Council on Cardiovascular Nursing; Council on Peripheral Vascular Disease; Council on Clinical Cardiology. Guidelines for the early management of patients with acute ischemic stroke: a guideline for healthcare professionals from the American Heart Association/American Stroke Association. Stroke. 2013;44:870–947. doi: 10.1161/STR.0b013e318284056a.",
+        "citation_number": 1,
+        "doi": "10.1161/STR.0b013e318284056a",
+        "pages": "870–947",
+        "volume": "44"
+      },
+      {
+        "authors": "The European Stroke Organisation (ESO) Executive Committee and the ESO Writing Committee",
+        "title": "Guidelines for management of ischaemic stroke and transient ischaemic attack 2008",
+        "journal": "Cerebrovasc Dis",
+        "year": "2008",
+        "raw_text": "2. The European Stroke Organisation (ESO) Executive Committee and the ESO Writing Committee. Guidelines for management of ischaemic stroke and transient ischaemic attack 2008. Cerebrovasc Dis. 2008;25:457–506.",
+        "citation_number": 2,
+        "pages": "457–506",
+        "volume": "25"
+      },
+      {
+        "authors": "Hofmeijer J, Kappelle LJ, Algra A, Amelink GJ, van Gijn J, van der Worp HB; HAMLET Investigators",
+        "title": "Surgical decompression for space-occupying cerebral infarction (the Hemicraniectomy After Middle Cerebral Artery Infarction With Life-Threatening Edema Trial [HAMLET]): a multicentre, open, randomised trial",
+        "journal": "Lancet Neurol",
+        "year": "2009",
+        "raw_text": "3. Hofmeijer J, Kappelle LJ, Algra A, Amelink GJ, van Gijn J, van der Worp HB; HAMLET Investigators. Surgical decompression for space-occupying cerebral infarction (the Hemicraniectomy After Middle Cerebral Artery Infarction With Life-Threatening Edema Trial [HAMLET]): a multicentre, open, randomised trial. Lancet Neurol. 2009;8:326–333. doi: 10.1016/S1474-4422(09)70047-X.",
+        "citation_number": 3,
+        "doi": "10.1016/S1474-4422(09)70047-X",
+        "pages": "326–333",
+        "volume": "8"
+      },
+      {
+        "authors": "Vahedi K, Hofmeijer J, Juettler E, Vicaut E, George B, Algra A, et al; DECIMAL, DESTINY, and HAMLET Investigators",
+        "title": "Early decompressive surgery in malignant infarction of the middle cerebral artery: a pooled analysis of three randomised controlled trials",
+        "journal": "Lancet Neurol",
+        "year": "2007",
+        "raw_text": "4. Vahedi K, Hofmeijer J, Juettler E, Vicaut E, George B, Algra A, et al; DECIMAL, DESTINY, and HAMLET Investigators. Early decompressive surgery in malignant infarction of the middle cerebral artery: a pooled analysis of three randomised controlled trials. Lancet Neurol. 2007;6:215–222. doi: 10.1016/S1474-4422(07)70036-4.",
+        "citation_number": 4,
+        "doi": "10.1016/S1474-4422(07)70036-4",
+        "pages": "215–222",
+        "volume": "6"
+      },
+      {
+        "authors": "Song D, Cho AH",
+        "title": "Previous and recent evidence of endovascular therapy in acute ischemic stroke",
+        "journal": "Neurointervention",
+        "year": "2015",
+        "raw_text": "5. Song D, Cho AH. Previous and recent evidence of endovascular therapy in acute ischemic stroke. Neurointervention. 2015;10:51–59. doi: 10.5469/neuroint.2015.10.2.51.",
+        "citation_number": 5,
+        "doi": "10.5469/neuroint.2015.10.2.51",
+        "pages": "51–59",
+        "volume": "10"
+      },
+      {
+        "authors": "Siu KL, Lee DG, Shim JH, Suh DC, Lee DH",
+        "title": "Mechanical thrombectomy using the solitaire fr system for occlusion of the top of the basilar artery: intentional detachment of the device after partial retrieval",
+        "journal": "Neurointervention",
+        "year": "2014",
+        "raw_text": "6. Siu KL, Lee DG, Shim JH, Suh DC, Lee DH. Mechanical thrombectomy using the solitaire fr system for occlusion of the top of the basilar artery: intentional detachment of the device after partial retrieval. Neurointervention. 2014;9:26–31. doi: 10.5469/neuroint.2014.9.1.26.",
+        "citation_number": 6,
+        "doi": "10.5469/neuroint.2014.9.1.26",
+        "pages": "26–31",
+        "volume": "9"
+      },
+      {
+        "authors": "Chobanian AV, Bakris GL, Black HR, Cushman WC, Green LA, Izzo JL Jr, et al; National Heart, Lung, and Blood Institute Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure; National High Blood Pressure Education Program Coordinating Committee",
+        "title": "The Seventh Report of the Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure: the JNC 7 report",
+        "journal": "JAMA",
+        "year": "2003",
+        "raw_text": "7. Chobanian AV, Bakris GL, Black HR, Cushman WC, Green LA, Izzo JL Jr, et al; National Heart, Lung, and Blood Institute Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure; National High Blood Pressure Education Program Coordinating Committee. The Seventh Report of the Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure: the JNC 7 report. JAMA. 2003;289:2560–2572. doi: 10.1001/jama.289.19.2560.",
+        "citation_number": 7,
+        "doi": "10.1001/jama.289.19.2560",
+        "pages": "2560–2572",
+        "volume": "289"
+      },
+      {
+        "authors": "James PA, Oparil S, Carter BL, Cushman WC, Dennison-Himmelfarb C, Handler J, et al",
+        "title": "2014 evidence-based guideline for the management of high blood pressure in adults: report from the panel members appointed to the Eighth Joint National Committee (JNC 8)",
+        "journal": "JAMA",
+        "year": "2014",
+        "raw_text": "8. James PA, Oparil S, Carter BL, Cushman WC, Dennison-Himmelfarb C, Handler J, et al. 2014 evidence-based guideline for the management of high blood pressure in adults: report from the panel members appointed to the Eighth Joint National Committee (JNC 8). JAMA. 2014;311:507–520. doi: 10.1001/jama.2013.284427.",
+        "citation_number": 8,
+        "doi": "10.1001/jama.2013.284427",
+        "pages": "507–520",
+        "volume": "311"
+      },
+      {
+        "authors": "Khan M, Polyzoidis KS, Adegbite AB, McQueen JD",
+        "title": "Massive cerebellar infarction: “conservative” management",
+        "journal": "Stroke",
+        "year": "1983",
+        "raw_text": "9. Khan M, Polyzoidis KS, Adegbite AB, McQueen JD. Massive cerebellar infarction: “conservative” management. Stroke. 1983;14:745–751.",
+        "citation_number": 9,
+        "pages": "745–751",
+        "volume": "14"
+      },
+      {
+        "authors": "Mathew P, Teasdale G, Bannan A, Oluoch-Olunya D",
+        "title": "Neurosurgical management of cerebellar haematoma and infarct",
+        "journal": "J Neurol Neurosurg Psychiatry",
+        "year": "1995",
+        "raw_text": "10. Mathew P, Teasdale G, Bannan A, Oluoch-Olunya D. Neurosurgical management of cerebellar haematoma and infarct. J Neurol Neurosurg Psychiatry. 1995;59:287–292.",
+        "citation_number": 10,
+        "pages": "287–292",
+        "volume": "59"
+      },
+      {
+        "authors": "Raco A, Caroli E, Isidori A, Salvati M",
+        "title": "Management of acute cerebellar infarction: one institution’s experience",
+        "journal": "Neurosurgery",
+        "year": "2003",
+        "raw_text": "11. Raco A, Caroli E, Isidori A, Salvati M. Management of acute cerebellar infarction: one institution’s experience. Neurosurgery. 2003;53:1061–1065, discussion 1065.",
+        "citation_number": 11,
+        "pages": "1061–1065",
+        "volume": "53"
+      },
+      {
+        "authors": "Chen HJ, Lee TC, Wei CP",
+        "title": "Treatment of cerebellar infarction by decompressive suboccipital craniectomy",
+        "journal": "Stroke",
+        "year": "1992",
+        "raw_text": "12. Chen HJ, Lee TC, Wei CP. Treatment of cerebellar infarction by decompressive suboccipital craniectomy. Stroke. 1992;23:957–961.",
+        "citation_number": 12,
+        "pages": "957–961",
+        "volume": "23"
+      },
+      {
+        "authors": "Pfefferkorn T, Eppinger U, Linn J, Birnbaum T, Herzog J, Straube A, et al",
+        "title": "Long-term outcome after suboccipital decompressive craniectomy for malignant cerebellar infarction",
+        "journal": "Stroke",
+        "year": "2009",
+        "raw_text": "13. Pfefferkorn T, Eppinger U, Linn J, Birnbaum T, Herzog J, Straube A, et al. Long-term outcome after suboccipital decompressive craniectomy for malignant cerebellar infarction. Stroke. 2009;40:3045–3050. doi: 10.1161/STROKEAHA.109.550871.",
+        "citation_number": 13,
+        "doi": "10.1161/STROKEAHA.109.550871",
+        "pages": "3045–3050",
+        "volume": "40"
+      },
+      {
+        "authors": "Tsitsopoulos PP, Tobieson L, Enblad P, Marklund N",
+        "title": "Surgical treatment of patients with unilateral cerebellar infarcts: clinical outcome and prognostic factors",
+        "journal": "Acta Neurochir (Wien)",
+        "year": "2011",
+        "raw_text": "14. Tsitsopoulos PP, Tobieson L, Enblad P, Marklund N. Surgical treatment of patients with unilateral cerebellar infarcts: clinical outcome and prognostic factors. Acta Neurochir (Wien). 2011;153:2075–2083. doi: 10.1007/s00701-011-1120-4.",
+        "citation_number": 14,
+        "doi": "10.1007/s00701-011-1120-4",
+        "pages": "2075–2083",
+        "volume": "153"
+      },
+      {
+        "authors": "Koh MG, Phan TG, Atkinson JL, Wijdicks EF",
+        "title": "Neuroimaging in deteriorating patients with cerebellar infarcts and mass effect",
+        "journal": "Stroke",
+        "year": "2000",
+        "raw_text": "15. Koh MG, Phan TG, Atkinson JL, Wijdicks EF. Neuroimaging in deteriorating patients with cerebellar infarcts and mass effect. Stroke. 2000;31:2062–2067.",
+        "citation_number": 15,
+        "pages": "2062–2067",
+        "volume": "31"
+      },
+      {
+        "authors": "Jüttler E, Schweickert S, Ringleb PA, Huttner HB, Köhrmann M, Aschoff A",
+        "title": "Long-term outcome after surgical treatment for space-occupying cerebellar infarction: experience in 56 patients",
+        "journal": "Stroke",
+        "year": "2009",
+        "raw_text": "16. Jüttler E, Schweickert S, Ringleb PA, Huttner HB, Köhrmann M, Aschoff A. Long-term outcome after surgical treatment for space-occupying cerebellar infarction: experience in 56 patients. Stroke. 2009;40:3060–3066. doi: 10.1161/STROKEAHA.109.550913.",
+        "citation_number": 16,
+        "doi": "10.1161/STROKEAHA.109.550913",
+        "pages": "3060–3066",
+        "volume": "40"
+      },
+      {
+        "authors": "Mohsenipour I, Gabl M, Schutzhard E, Twerdy K",
+        "title": "Suboccipital decompressive surgery in cerebellar infarction",
+        "journal": "Zentralbl Neurochir",
+        "year": "1999",
+        "raw_text": "17. Mohsenipour I, Gabl M, Schutzhard E, Twerdy K. Suboccipital decompressive surgery in cerebellar infarction. Zentralbl Neurochir. 1999;60:68–73.",
+        "citation_number": 17,
+        "pages": "68–73",
+        "volume": "60"
+      },
+      {
+        "authors": "Hornig CR, Rust DS, Busse O, Jauss M, Laun A",
+        "title": "Space-occupying cerebellar infarction. Clinical course and prognosis",
+        "journal": "Stroke",
+        "year": "1994",
+        "raw_text": "18. Hornig CR, Rust DS, Busse O, Jauss M, Laun A. Space-occupying cerebellar infarction. Clinical course and prognosis. Stroke. 1994;25:372–374.",
+        "citation_number": 18,
+        "pages": "372–374",
+        "volume": "25"
+      },
+      {
+        "authors": "Heros RC",
+        "title": "Surgical treatment of cerebellar infarction",
+        "journal": "Stroke",
+        "year": "1992",
+        "raw_text": "19. Heros RC. Surgical treatment of cerebellar infarction. Stroke. 1992;23:937–938.",
+        "citation_number": 19,
+        "pages": "937–938",
+        "volume": "23"
+      },
+      {
+        "authors": "Kase CS, Wolf PA",
+        "title": "Cerebellar infarction: upward transtentorial herniation after ventriculostomy",
+        "journal": "Stroke",
+        "year": "1993",
+        "raw_text": "20. Kase CS, Wolf PA. Cerebellar infarction: upward transtentorial herniation after ventriculostomy. Stroke. 1993;24:1096–1098.",
+        "citation_number": 20,
+        "pages": "1096–1098",
+        "volume": "24"
+      },
+      {
+        "authors": "Tulyapronchote R, Malkoff MD, Selhorst JB, Gomez CR",
+        "title": "Treatment of cerebellar infarction by decompression suboccipital craniectomy",
+        "journal": "Stroke",
+        "year": "1993",
+        "raw_text": "21. Tulyapronchote R, Malkoff MD, Selhorst JB, Gomez CR. Treatment of cerebellar infarction by decompression suboccipital craniectomy. Stroke. 1993;24:478–480.",
+        "citation_number": 21,
+        "pages": "478–480",
+        "volume": "24"
+      },
+      {
+        "authors": "Kudo H, Kawaguchi T, Minami H, Kuwamura K, Miyata M, Kohmura E",
+        "title": "Controversy of surgical treatment for severe cerebellar infarction",
+        "journal": "J Stroke Cerebrovasc Dis",
+        "year": "2007",
+        "raw_text": "22. Kudo H, Kawaguchi T, Minami H, Kuwamura K, Miyata M, Kohmura E. Controversy of surgical treatment for severe cerebellar infarction. J Stroke Cerebrovasc Dis. 2007;16:259–262. doi: 10.1016/j.jstrokecerebrovasdis.2007.09.001.",
+        "citation_number": 22,
+        "doi": "10.1016/j.jstrokecerebrovasdis.2007.09.001",
+        "pages": "259–262",
+        "volume": "16"
+      },
+      {
+        "authors": "Chung J, Bang OY, Lim YC, Park SK, Shin YS",
+        "title": "Newly suggested surgical method of decompressive craniectomy for patients with middle cerebral artery infarction",
+        "journal": "Neurologist",
+        "year": "2011",
+        "raw_text": "23. Chung J, Bang OY, Lim YC, Park SK, Shin YS. Newly suggested surgical method of decompressive craniectomy for patients with middle cerebral artery infarction. Neurologist. 2011;17:11–15. doi: 10.1097/NRL.0b013e3181f4ec88.",
+        "citation_number": 23,
+        "doi": "10.1097/NRL.0b013e3181f4ec88",
+        "pages": "11–15",
+        "volume": "17"
+      }
+    ],
+    "createdAt": "2025-11-27T00:55:58.790Z",
+    "status": "completed"
+  },
+  {
+    "id": "study_1764206446806",
+    "metadata": {
+      "title": "Preventive Suboccipital Decompressive Craniectomy for Cerebellar Infarction",
+      "firstAuthor": "Myeong Jin Kim",
+      "publicationYear": 2016,
+      "journal": "Stroke",
+      "hospitalCenter": "Gachon University Gil Medical Center",
+      "studyPeriod": "March 2007 - September 2015",
+      "studyDesign": "Retrospective"
+    },
+    "population": {
+      "sampleSize": 28,
+      "age": {
+        "mean": {
+          "value": 59,
+          "sourceText": "59.0±11.6",
+          "pageNumber": 5
+        },
+        "sd": {
+          "value": 11.6,
+          "sourceText": "59.0±11.6",
+          "pageNumber": 5
+        },
+        "range": "null"
+      },
+      "gcs": {
+        "admissionMean": {
+          "value": 12.1,
+          "sourceText": "12.1±4.1",
+          "pageNumber": 5
+        },
+        "preOpMean": {
+          "value": 12.1,
+          "sourceText": "without clinical deterioration (no GCS score changes) within 72 hours",
+          "pageNumber": 2
+        }
+      },
+      "hydrocephalus": {
+        "value": 50,
+        "sourceText": "A unilateral EVD on the parieto-occipital point was usually set up before SDC for hydrocephalus and was performed in 14 (50.0%) patients in this study.",
+        "pageNumber": 2
+      },
+      "diagnosis": "Cerebellar infarction",
+      "inclusionCriteria": [
+        "presence of cerebellar infarction",
+        "initial Glasgow Coma Scale (GCS) score ≥9",
+        "without clinical deterioration (no GCS score changes) within 72 hours from onset",
+        "cerebellar infarction volume ratio between 0.25 and 0.33 on initial or routine follow-up radiographic findings"
+      ]
+    },
+    "intervention": {
+      "procedure": "Preventive Suboccipital Decompressive Craniectomy (SDC)",
+      "technique": {
+        "value": "Bilateral SDC with opening of the foramen magnum was performed for all patients regardless of infarction laterality, extending margins to the transverse and lateral sinuses. Decompressive resection of the infarcted cerebellum was performed in 57.1% of cases.",
+        "sourceText": "Bilateral SDC with the opening of the foramen magnum was performed for all patients, even those with unilateral infarction. The upper and lateral margin of SDC extended as close as possible to the transverse and lateral sinuses. ... decompressive resection of the infarcted cerebellum was performed in 16 of 28 patients (57.1%).",
+        "pageNumber": 2566
+      },
+      "evdUsed": {
+        "value": true,
+        "sourceText": "A unilateral EVD on the parieto-occipital point was usually set up before SDC for hydrocephalus and was performed in 14 (50.0%) patients in this study.",
+        "pageNumber": 2566
+      },
+      "duraplasty": {
+        "value": true,
+        "sourceText": "The dura was opened in a large Y incision. ... Duroplasty used an artificial dura.",
+        "pageNumber": 2566
+      },
+      "timingToSurgery": {
+        "value": 72,
+        "sourceText": "Among them, 28 patients underwent preventive SDC with the following criteria: ... (3) without clinical deterioration (no GCS score changes) within 72 hours from onset",
+        "pageNumber": 2566
+      },
+      "additionalDetails": "The procedure was performed with the patient in the park-bench (three quarter) or prone position, with the head fixed using a three-pin head fixator."
+    },
+    "comparator": {
+      "exists": true,
+      "type": "Medical Management",
+      "description": "Propensity score-matched control group (Group B) consisting of patients with cerebellar infarction who did not undergo preventive suboccipital decompressive craniectomy (SDC) and received best medical management. The matching ratio was 1:2.",
+      "sampleSize": 56
+    },
+    "outcomes": {
+      "mortality": {
+        "value": "At discharge: 1 death (3.6%) in Group A vs 5 deaths (8.9%) in Group B; 12-month follow-up: Group B had more deaths than Group A (log-rank, P<0.05)",
+        "sourceText": "At discharge, 18 (64.3%) of the 28 patients in group A showed favorable outcomes with 1 death, whereas 27 (48.2%) of 56 patients in group B showed favorable outcomes with 5 deaths (P=0.048)... Group B had more deaths within 12 months than group A (log-rank, P<0.05).",
+        "pageNumber": 4
+      },
+      "mRS_favorable": {
+        "value": "Group A: 66.7% vs Group B: 51.0% at 12-month follow-up (Definition: mRS 0-2)",
+        "sourceText": "At the 12-month follow-up, 18 (66.7%) of the 27 patients in group A showed favorable outcomes, whereas 26 (51.0%) of the 51 patients in group B showed favorable outcomes... An mRS of 0 to 2 was defined as favorable",
+        "pageNumber": 4
+      },
+      "complications": [
+        "Cerebrospinal fluid leakage requiring dura repair",
+        "Pneumonia sepsis",
+        "Sudden death (possible heart problems)",
+        "Chronic illness after infarction",
+        "Hemorrhagic transformation"
+      ],
+      "lengthOfStay": {
+        "value": 0,
+        "sourceText": "Value not stated in text",
+        "pageNumber": 1
+      },
+      "allOutcomes": [
+        {
+          "measureName": "Modified Rankin Scale (Favorable Outcome)",
+          "timepoint": "Discharge",
+          "resultValue": "Group A: 18 (64.3%), Group B: 27 (48.2%)",
+          "definition": "mRS 0-2",
+          "sourceText": "At discharge, 18 (64.3%) of the 28 patients in group A showed favorable outcomes with 1 death, whereas 27 (48.2%) of 56 patients in group B showed favorable outcomes with 5 deaths"
+        },
+        {
+          "measureName": "Modified Rankin Scale (Favorable Outcome)",
+          "timepoint": "12-month follow-up",
+          "resultValue": "Group A: 18 (66.7%), Group B: 26 (51.0%)",
+          "definition": "mRS 0-2",
+          "sourceText": "At the 12-month follow-up, 18 (66.7%) of the 27 patients in group A showed favorable outcomes, whereas 26 (51.0%) of the 51 patients in group B showed favorable outcomes"
+        },
+        {
+          "measureName": "Mortality",
+          "timepoint": "Discharge",
+          "resultValue": "Group A: 1 death, Group B: 5 deaths",
+          "definition": "Death",
+          "sourceText": "At discharge... with 1 death, whereas... with 5 deaths"
+        },
+        {
+          "measureName": "Procedure-related complications (CSF leakage)",
+          "timepoint": "Post-operative",
+          "resultValue": "Group A: 2 (7.1%)",
+          "definition": "Additional surgery for dura repair for cerebrospinal fluid leakage",
+          "sourceText": "Procedure-related complications in group A occurred in 2 (7.1%) patients who underwent additional surgery for dura repair for cerebrospinal fluid leakage."
+        },
+        {
+          "measureName": "Hemorrhagic transformation",
+          "timepoint": "During hospital stay (retrospective review)",
+          "resultValue": "Group A: 8 (28.6%), Group B: 15 (26.8%)",
+          "definition": "Radiographic finding",
+          "sourceText": "Hemorrhagic transformation... Group A (n=28): 8 (28.6)... Group B (n=56): 15 (26.8)"
+        }
+      ]
+    },
+    "quality": {
+      "selectionScore": 3,
+      "comparabilityScore": 2,
+      "outcomeScore": 2,
+      "totalScore": 7,
+      "qualityRating": "Good",
+      "selectionJustification": "S1: 0 stars. The cohort is a selected group treated by a specific team of neurosurgeons (alumni of one institution), limiting representativeness.\nS2: 1 star. Controls were drawn from the same prospectively collected database and time period as the cases.\nS3: 1 star. Exposure was ascertained through review of medical records/surgical database.\nS4: 1 star. Patients with pre-existing disability (mRS ≥1) were excluded, ensuring the outcome of interest (poor functional outcome) was not present at start.",
+      "comparabilityJustification": "C1: 1 star. The study controlled for GCS (the most important factor) using propensity score matching.\nC2: 1 star. The study controlled for Age (and other factors like NIHSS) via propensity score matching.",
+      "outcomeJustification": "O1: 1 star. Outcome was assessed by independent investigators blinded to the study data.\nO2: 1 star. Follow-up was 12 months, which is adequate for functional outcomes.\nO3: 0 stars. A significant portion of the potential control pool (312/1102, 28%) was excluded due to lost follow-up before matching, introducing potential attrition bias.",
+      "biasNotes": "The study is rated Good (7 stars) but has notable limitations. There is selection bias due to the specific surgeon group (alumni of one institution). There is attrition bias in the control selection process, as 28% of eligible controls were excluded due to missing follow-up data. Additionally, the handling of deaths in the functional outcome analysis (mRS) is slightly ambiguous in the tables (n=27 for Group A vs n=28 total). Randomization was not possible, but Propensity Score Matching was used to mitigate confounding."
+    },
+    "citations": [
+      {
+        "authors": "Jauch EC, Saver JL, Adams HP Jr, Bruno A, Connors JJ, Demaerschalk BM, et al; American Heart Association Stroke Council; Council on Cardiovascular Nursing; Council on Peripheral Vascular Disease; Council on Clinical Cardiology",
+        "title": "Guidelines for the early management of patients with acute ischemic stroke: a guideline for healthcare professionals from the American Heart Association/American Stroke Association",
+        "journal": "Stroke",
+        "year": "2013",
+        "raw_text": "1. Jauch EC, Saver JL, Adams HP Jr, Bruno A, Connors JJ, Demaerschalk BM, et al; American Heart Association Stroke Council; Council on Cardiovascular Nursing; Council on Peripheral Vascular Disease; Council on Clinical Cardiology. Guidelines for the early management of patients with acute ischemic stroke: a guideline for healthcare professionals from the American Heart Association/American Stroke Association. Stroke. 2013;44:870–947. doi: 10.1161/STR.0b013e318284056a.",
+        "citation_number": 1,
+        "doi": "10.1161/STR.0b013e318284056a",
+        "volume": "44"
+      },
+      {
+        "authors": "The European Stroke Organisation (ESO) Executive Committee and the ESO Writing Committee",
+        "title": "Guidelines for management of ischaemic stroke and transient ischaemic attack 2008",
+        "journal": "Cerebrovasc Dis",
+        "year": "2008",
+        "raw_text": "2. The European Stroke Organisation (ESO) Executive Committee and the ESO Writing Committee. Guidelines for management of ischaemic stroke and transient ischaemic attack 2008. Cerebrovasc Dis. 2008;25:457–506.",
+        "citation_number": 2,
+        "volume": "25"
+      },
+      {
+        "authors": "Hofmeijer J, Kappelle LJ, Algra A, Amelink GJ, van Gijn J, van der Worp HB; HAMLET Investigators",
+        "title": "Surgical decompression for space-occupying cerebral infarction (the Hemicraniectomy After Middle Cerebral Artery Infarction With Life-Threatening Edema Trial [HAMLET]): a multicentre, open, randomised trial",
+        "journal": "Lancet Neurol",
+        "year": "2009",
+        "raw_text": "3. Hofmeijer J, Kappelle LJ, Algra A, Amelink GJ, van Gijn J, van der Worp HB; HAMLET Investigators. Surgical decompression for space-occupying cerebral infarction (the Hemicraniectomy After Middle Cerebral Artery Infarction With Life-Threatening Edema Trial [HAMLET]): a multicentre, open, randomised trial. Lancet Neurol. 2009;8:326–333. doi: 10.1016/S1474-4422(09)70047-X.",
+        "citation_number": 3,
+        "doi": "10.1016/S1474-4422(09)70047-X",
+        "volume": "8"
+      },
+      {
+        "authors": "Vahedi K, Hofmeijer J, Juettler E, Vicaut E, George B, Algra A, et al; DECIMAL, DESTINY, and HAMLET Investigators",
+        "title": "Early decompressive surgery in malignant infarction of the middle cerebral artery: a pooled analysis of three randomised controlled trials",
+        "journal": "Lancet Neurol",
+        "year": "2007",
+        "raw_text": "4. Vahedi K, Hofmeijer J, Juettler E, Vicaut E, George B, Algra A, et al; DECIMAL, DESTINY, and HAMLET Investigators. Early decompressive surgery in malignant infarction of the middle cerebral artery: a pooled analysis of three randomised controlled trials. Lancet Neurol. 2007;6:215–222. doi: 10.1016/S1474-4422(07)70036-4.",
+        "citation_number": 4,
+        "doi": "10.1016/S1474-4422(07)70036-4",
+        "volume": "6"
+      },
+      {
+        "authors": "Song D, Cho AH",
+        "title": "Previous and recent evidence of endovascular therapy in acute ischemic stroke",
+        "journal": "Neurointervention",
+        "year": "2015",
+        "raw_text": "5. Song D, Cho AH. Previous and recent evidence of endovascular therapy in acute ischemic stroke. Neurointervention. 2015;10:51–59. doi: 10.5469/neuroint.2015.10.2.51.",
+        "citation_number": 5,
+        "doi": "10.5469/neuroint.2015.10.2.51",
+        "volume": "10"
+      },
+      {
+        "authors": "Siu KL, Lee DG, Shim JH, Suh DC, Lee DH",
+        "title": "Mechanical thrombectomy using the solitaire fr system for occlusion of the top of the basilar artery: intentional detachment of the device after partial retrieval",
+        "journal": "Neurointervention",
+        "year": "2014",
+        "raw_text": "6. Siu KL, Lee DG, Shim JH, Suh DC, Lee DH. Mechanical thrombectomy using the solitaire fr system for occlusion of the top of the basilar artery: intentional detachment of the device after partial retrieval. Neurointervention. 2014;9:26–31. doi: 10.5469/neuroint.2014.9.1.26.",
+        "citation_number": 6,
+        "doi": "10.5469/neuroint.2014.9.1.26",
+        "volume": "9"
+      },
+      {
+        "authors": "Chobanian AV, Bakris GL, Black HR, Cushman WC, Green LA, Izzo JL Jr, et al; National Heart, Lung, and Blood Institute Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure; National High Blood Pressure Education Program Coordinating Committee",
+        "title": "The Seventh Report of the Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure: the JNC 7 report",
+        "journal": "JAMA",
+        "year": "2003",
+        "raw_text": "7. Chobanian AV, Bakris GL, Black HR, Cushman WC, Green LA, Izzo JL Jr, et al; National Heart, Lung, and Blood Institute Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure; National High Blood Pressure Education Program Coordinating Committee. The Seventh Report of the Joint National Committee on Prevention, Detection, Evaluation, and Treatment of High Blood Pressure: the JNC 7 report. JAMA. 2003;289:2560–2572. doi: 10.1001/jama.289.19.2560.",
+        "citation_number": 7,
+        "doi": "10.1001/jama.289.19.2560",
+        "volume": "289"
+      },
+      {
+        "authors": "James PA, Oparil S, Carter BL, Cushman WC, Dennison-Himmelfarb C, Handler J, et al",
+        "title": "2014 evidence-based guideline for the management of high blood pressure in adults: report from the panel members appointed to the Eighth Joint National Committee (JNC 8)",
+        "journal": "JAMA",
+        "year": "2014",
+        "raw_text": "8. James PA, Oparil S, Carter BL, Cushman WC, Dennison-Himmelfarb C, Handler J, et al. 2014 evidence-based guideline for the management of high blood pressure in adults: report from the panel members appointed to the Eighth Joint National Committee (JNC 8). JAMA. 2014;311:507–520. doi: 10.1001/jama.2013.284427.",
+        "citation_number": 8,
+        "doi": "10.1001/jama.2013.284427",
+        "volume": "311"
+      },
+      {
+        "authors": "Khan M, Polyzoidis KS, Adegbite AB, McQueen JD",
+        "title": "Massive cerebellar infarction: “conservative” management",
+        "journal": "Stroke",
+        "year": "1983",
+        "raw_text": "9. Khan M, Polyzoidis KS, Adegbite AB, McQueen JD. Massive cerebellar infarction: “conservative” management. Stroke. 1983;14:745–751.",
+        "citation_number": 9,
+        "volume": "14"
+      },
+      {
+        "authors": "Mathew P, Teasdale G, Bannan A, Oluoch-Olunya D",
+        "title": "Neurosurgical management of cerebellar haematoma and infarct",
+        "journal": "J Neurol Neurosurg Psychiatry",
+        "year": "1995",
+        "raw_text": "10. Mathew P, Teasdale G, Bannan A, Oluoch-Olunya D. Neurosurgical management of cerebellar haematoma and infarct. J Neurol Neurosurg Psychiatry. 1995;59:287–292.",
+        "citation_number": 10,
+        "volume": "59"
+      },
+      {
+        "authors": "Raco A, Caroli E, Isidori A, Salvati M",
+        "title": "Management of acute cerebellar infarction: one institution’s experience",
+        "journal": "Neurosurgery",
+        "year": "2003",
+        "raw_text": "11. Raco A, Caroli E, Isidori A, Salvati M. Management of acute cerebellar infarction: one institution’s experience. Neurosurgery. 2003;53:1061–1065, discussion 1065.",
+        "citation_number": 11,
+        "volume": "53"
+      },
+      {
+        "authors": "Chen HJ, Lee TC, Wei CP",
+        "title": "Treatment of cerebellar infarction by decompressive suboccipital craniectomy",
+        "journal": "Stroke",
+        "year": "1992",
+        "raw_text": "12. Chen HJ, Lee TC, Wei CP. Treatment of cerebellar infarction by decompressive suboccipital craniectomy. Stroke. 1992;23:957–961.",
+        "citation_number": 12,
+        "volume": "23"
+      },
+      {
+        "authors": "Pfefferkorn T, Eppinger U, Linn J, Birnbaum T, Herzog J, Straube A, et al",
+        "title": "Long-term outcome after suboccipital decompressive craniectomy for malignant cerebellar infarction",
+        "journal": "Stroke",
+        "year": "2009",
+        "raw_text": "13. Pfefferkorn T, Eppinger U, Linn J, Birnbaum T, Herzog J, Straube A, et al. Long-term outcome after suboccipital decompressive craniectomy for malignant cerebellar infarction. Stroke. 2009;40:3045–3050. doi: 10.1161/STROKEAHA.109.550871.",
+        "citation_number": 13,
+        "doi": "10.1161/STROKEAHA.109.550871",
+        "volume": "40"
+      },
+      {
+        "authors": "Tsitsopoulos PP, Tobieson L, Enblad P, Marklund N",
+        "title": "Surgical treatment of patients with unilateral cerebellar infarcts: clinical outcome and prognostic factors",
+        "journal": "Acta Neurochir (Wien)",
+        "year": "2011",
+        "raw_text": "14. Tsitsopoulos PP, Tobieson L, Enblad P, Marklund N. Surgical treatment of patients with unilateral cerebellar infarcts: clinical outcome and prognostic factors. Acta Neurochir (Wien). 2011;153:2075–2083. doi: 10.1007/s00701-011-1120-4.",
+        "citation_number": 14,
+        "doi": "10.1007/s00701-011-1120-4",
+        "volume": "153"
+      },
+      {
+        "authors": "Koh MG, Phan TG, Atkinson JL, Wijdicks EF",
+        "title": "Neuroimaging in deteriorating patients with cerebellar infarcts and mass effect",
+        "journal": "Stroke",
+        "year": "2000",
+        "raw_text": "15. Koh MG, Phan TG, Atkinson JL, Wijdicks EF. Neuroimaging in deteriorating patients with cerebellar infarcts and mass effect. Stroke. 2000;31:2062–2067.",
+        "citation_number": 15,
+        "volume": "31"
+      },
+      {
+        "authors": "Jüttler E, Schweickert S, Ringleb PA, Huttner HB, Köhrmann M, Aschoff A",
+        "title": "Long-term outcome after surgical treatment for space-occupying cerebellar infarction: experience in 56 patients",
+        "journal": "Stroke",
+        "year": "2009",
+        "raw_text": "16. Jüttler E, Schweickert S, Ringleb PA, Huttner HB, Köhrmann M, Aschoff A. Long-term outcome after surgical treatment for space-occupying cerebellar infarction: experience in 56 patients. Stroke. 2009;40:3060–3066. doi: 10.1161/STROKEAHA.109.550913.",
+        "citation_number": 16,
+        "doi": "10.1161/STROKEAHA.109.550913",
+        "volume": "40"
+      },
+      {
+        "authors": "Mohsenipour I, Gabl M, Schutzhard E, Twerdy K",
+        "title": "Suboccipital decompressive surgery in cerebellar infarction",
+        "journal": "Zentralbl Neurochir",
+        "year": "1999",
+        "raw_text": "17. Mohsenipour I, Gabl M, Schutzhard E, Twerdy K. Suboccipital decompressive surgery in cerebellar infarction. Zentralbl Neurochir. 1999;60:68–73.",
+        "citation_number": 17,
+        "volume": "60"
+      },
+      {
+        "authors": "Hornig CR, Rust DS, Busse O, Jauss M, Laun A",
+        "title": "Space-occupying cerebellar infarction. Clinical course and prognosis",
+        "journal": "Stroke",
+        "year": "1994",
+        "raw_text": "18. Hornig CR, Rust DS, Busse O, Jauss M, Laun A. Space-occupying cerebellar infarction. Clinical course and prognosis. Stroke. 1994;25:372–374.",
+        "citation_number": 18,
+        "volume": "25"
+      },
+      {
+        "authors": "Heros RC",
+        "title": "Surgical treatment of cerebellar infarction",
+        "journal": "Stroke",
+        "year": "1992",
+        "raw_text": "19. Heros RC. Surgical treatment of cerebellar infarction. Stroke. 1992;23:937–938.",
+        "citation_number": 19,
+        "volume": "23"
+      },
+      {
+        "authors": "Kase CS, Wolf PA",
+        "title": "Cerebellar infarction: upward transtentorial herniation after ventriculostomy",
+        "journal": "Stroke",
+        "year": "1993",
+        "raw_text": "20. Kase CS, Wolf PA. Cerebellar infarction: upward transtentorial herniation after ventriculostomy. Stroke. 1993;24:1096–1098.",
+        "citation_number": 20,
+        "volume": "24"
+      },
+      {
+        "authors": "Tulyapronchote R, Malkoff MD, Selhorst JB, Gomez CR",
+        "title": "Treatment of cerebellar infarction by decompression suboccipital craniectomy",
+        "journal": "Stroke",
+        "year": "1993",
+        "raw_text": "21. Tulyapronchote R, Malkoff MD, Selhorst JB, Gomez CR. Treatment of cerebellar infarction by decompression suboccipital craniectomy. Stroke. 1993;24:478–480.",
+        "citation_number": 21,
+        "volume": "24"
+      },
+      {
+        "authors": "Kudo H, Kawaguchi T, Minami H, Kuwamura K, Miyata M, Kohmura E",
+        "title": "Controversy of surgical treatment for severe cerebellar infarction",
+        "journal": "J Stroke Cerebrovasc Dis",
+        "year": "2007",
+        "raw_text": "22. Kudo H, Kawaguchi T, Minami H, Kuwamura K, Miyata M, Kohmura E. Controversy of surgical treatment for severe cerebellar infarction. J Stroke Cerebrovasc Dis. 2007;16:259–262. doi: 10.1016/j.jstrokecerebrovasdis.2007.09.001.",
+        "citation_number": 22,
+        "doi": "10.1016/j.jstrokecerebrovasdis.2007.09.001",
+        "volume": "16"
+      },
+      {
+        "authors": "Chung J, Bang OY, Lim YC, Park SK, Shin YS",
+        "title": "Newly suggested surgical method of decompressive craniectomy for patients with middle cerebral artery infarction",
+        "journal": "Neurologist",
+        "year": "2011",
+        "raw_text": "23. Chung J, Bang OY, Lim YC, Park SK, Shin YS. Newly suggested surgical method of decompressive craniectomy for patients with middle cerebral artery infarction. Neurologist. 2011;17:11–15. doi: 10.1097/NRL.0b013e3181f4ec88.",
+        "citation_number": 23,
+        "doi": "10.1097/NRL.0b013e3181f4ec88",
+        "volume": "17"
+      }
+    ],
+    "createdAt": "2025-11-27T01:20:46.806Z",
+    "status": "completed"
+  }
+]
