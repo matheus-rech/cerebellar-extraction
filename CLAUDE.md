@@ -111,6 +111,38 @@ Four specialized evaluators with weighted scoring:
 - Batch processing with concurrency control (pLimit)
 - Extracts: figure type, caption, data points with confidence scores, clinical relevance
 
+**Evaluation Dataset System** (`src/evaluation/dataset.ts`):
+
+Implements Hybrid Approach for building benchmark datasets with 3 phases:
+
+- **Phase 1 (Baseline)**: 15-paper regression baseline + 5 ground truth annotations
+- **Phase 2 (Expanded)**: 20 ground truth + 10 challenge cases
+- **Phase 3 (Expert)**: 50 papers with inter-rater reliability
+
+**Key Components**:
+
+- `GroundTruthSchema`: Field-level annotations with source evidence, annotator confidence
+- `createGroundTruth` flow: Initialize ground truth template for a study
+- `annotateField` flow: Add/update field annotations with verbatim source quotes
+- `evaluateAgainstGroundTruth` flow: Compare extraction with ground truth, calculate field-level precision/recall
+- `generateEvaluationReport` flow: Aggregate metrics stratified by study design and difficulty
+
+**Evaluation Metrics**:
+
+- Field-level precision/recall (weighted by clinical importance)
+- Source grounding rate (% of VerifiableFields with valid quotes)
+- NOS consistency (Newcastle-Ottawa Scale mathematical validity)
+- Error breakdown: missing, hallucination, inaccurate, partial, correct
+- Critical field accuracy (high-importance fields weighted higher)
+
+**CLI Commands**:
+
+- `npm run genkit annotate <study_id>` - Interactive annotation session
+- `npm run genkit evaluate-dataset <study_id>` - Evaluate extraction against ground truth
+- `npm run genkit report [phase]` - Generate aggregate evaluation report
+
+**Storage**: `./evaluation-dataset/` directory with JSON files for ground truth and results
+
 ### 2. Web Frontend (`public/index.html`)
 Single-file React app (3,400+ lines) with CDN-based React 18 and in-browser Babel JSX transformation.
 

@@ -14,6 +14,13 @@ import {createRequire} from "module";
 import {Parser} from "json2csv";
 import * as readline from "readline/promises";
 import {critiqueExtraction, CritiqueReportSchema, CritiqueMode} from "./critics/index.js";
+import {
+  createGroundTruth,
+  annotateField,
+  evaluateAgainstGroundTruth,
+  generateEvaluationReport,
+  loadGroundTruth,
+} from "./evaluation/dataset.js";
 const require = createRequire(import.meta.url);
 const {PDFParse} = require("pdf-parse");
 
@@ -2607,6 +2614,197 @@ What's the best next step for production use?`;
     console.log("📖 VERIFICATION REPORT WITH CITATIONS");
     console.log("═".repeat(50) + "\n");
     console.log(formatVerificationReport(extractedData));
+  } else if (command === "annotate") {
+    // Ground truth annotation mode
+    const studyId = args[1];
+    if (!studyId) {
+      console.error("Usage: npm run genkit annotate <study_id>");
+      console.error("Example: npm run genkit annotate Smith-2022");
+      console.error("\nThis will start interactive annotation for creating ground truth.");
+      process.exit(1);
+    }
+
+    // Load existing ground truth or create new
+    const existingGTs = loadGroundTruth();
+    let gt = existingGTs.find((g) => g.studyId === studyId);
+
+    if (!gt) {
+      console.log(`\n📝 Creating new ground truth for ${studyId}`);
+      console.log("Enter PDF path:");
+      const rl = readline.createInterface({input: process.stdin, output: process.stdout});
+      const pdfPath = await rl.question("> ");
+      const annotationType = await rl.question("Type (baseline/ground_truth/challenge): ");
+      const difficulty = await rl.question("Difficulty (easy/medium/hard): ");
+      const studyDesign = await rl.question("Study design: ");
+      const annotatorId = await rl.question("Your annotator ID: ");
+      rl.close();
+
+      const result = await createGroundTruth({
+        studyId,
+        pdfPath: pdfPath.trim(),
+        annotationType: annotationType.trim() as "baseline" | "ground_truth" | "challenge",
+        annotatorId: annotatorId.trim(),
+        difficulty: difficulty.trim() as "easy" | "medium" | "hard",
+        studyDesign: studyDesign.trim(),
+      });
+
+      console.log(`✅ ${result.message}`);
+      gt = loadGroundTruth().find((g) => g.studyId === studyId);
+    }
+
+    if (!gt) {
+      console.error("Failed to create ground truth");
+      process.exit(1);
+    }
+
+    // Interactive annotation loop
+    console.log(`\n📋 Ground Truth for ${studyId}`);
+    console.log(`   Annotations: ${gt.fieldAnnotations.length}`);
+    console.log(`   Status: ${gt.metadata.reviewStatus}\n`);
+
+    const rl2 = readline.createInterface({input: process.stdin, output: process.stdout});
+
+    while (true) {
+      console.log("Options:");
+      console.log("  1. Add/update field annotation");
+      console.log("  2. List current annotations");
+      console.log("  3. Exit");
+      const choice = await rl2.question("> ");
+
+      if (choice.trim() === "3") {
+        break;
+      } else if (choice.trim() === "1") {
+        const field = await rl2.question("Field path (e.g., population.age.mean): ");
+        const value = await rl2.question("Ground truth value: ");
+        const source = await rl2.question("Source evidence (verbatim quote): ");
+        const confidence = await rl2.question("Confidence (0.0-1.0): ");
+        const annotator = await rl2.question("Your annotator ID: ");
+        const notes = await rl2.question("Notes (optional): ");
+
+        const result = await annotateField({
+          studyId,
+          field: field.trim(),
+          groundTruthValue: value.trim(),
+          sourceEvidence: source.trim(),
+          annotatorId: annotator.trim(),
+          confidence: parseFloat(confidence.trim()),
+          notes: notes.trim() || undefined,
+        });
+
+        console.log(`✅ ${result.message}\n`);
+      } else if (choice.trim() === "2") {
+        const updated = loadGroundTruth().find((g) => g.studyId === studyId);
+        if (updated) {
+          console.log(`\nCurrent annotations (${updated.fieldAnnotations.length}):`);
+          updated.fieldAnnotations.forEach((a, i) => {
+            console.log(`  ${i + 1}. ${a.field} = ${a.groundTruthValue}`);
+            console.log(`     Source: ${a.sourceEvidence.substring(0, 60)}...`);
+            console.log(`     Annotator: ${a.annotatorId}, Confidence: ${a.confidence}\n`);
+          });
+        }
+      }
+    }
+
+    rl2.close();
+    console.log("Annotation session ended.");
+  } else if (command === "evaluate-dataset") {
+    // Evaluate extraction against ground truth
+    const studyId = args[1];
+    if (!studyId) {
+      console.error("Usage: npm run genkit evaluate-dataset <study_id>");
+      console.error("Example: npm run genkit evaluate-dataset Smith-2022");
+      console.error("\nThis evaluates an extraction against its ground truth annotation.");
+      process.exit(1);
+    }
+
+    // Check if ground truth exists
+    const groundTruths = loadGroundTruth();
+    const gt = groundTruths.find((g) => g.studyId === studyId);
+
+    if (!gt) {
+      console.error(`Ground truth not found for ${studyId}`);
+      console.error("Create it first with: npm run genkit annotate <study_id>");
+      process.exit(1);
+    }
+
+    console.log(`\n📊 Evaluating ${studyId} against ground truth...`);
+
+    // Extract data from the PDF
+    const pdfPath = path.resolve(gt.pdfPath);
+    if (!fs.existsSync(pdfPath)) {
+      console.error(`PDF not found: ${pdfPath}`);
+      process.exit(1);
+    }
+
+    const dataBuffer = fs.readFileSync(pdfPath);
+    const pdfData = await parsePdf(dataBuffer);
+    const pdfText = pdfData.text;
+
+    console.log("🔄 Running extraction...");
+    const extractedData = await extractStudyData({pdfText});
+
+    console.log("📈 Comparing with ground truth...");
+    const evalResult = await evaluateAgainstGroundTruth({studyId, extractedData});
+
+    console.log("\n" + "═".repeat(60));
+    console.log("📊 EVALUATION RESULTS");
+    console.log("═".repeat(60) + "\n");
+
+    console.log("Overall Metrics:");
+    console.log(`  Precision:              ${(evalResult.overallMetrics.precision * 100).toFixed(1)}%`);
+    console.log(`  Recall:                 ${(evalResult.overallMetrics.recall * 100).toFixed(1)}%`);
+    console.log(`  F1 Score:               ${(evalResult.overallMetrics.f1Score * 100).toFixed(1)}%`);
+    console.log(`  Source Grounding Rate:  ${(evalResult.overallMetrics.sourceGroundingRate * 100).toFixed(1)}%`);
+    console.log(`  NOS Consistency:        ${evalResult.overallMetrics.nosConsistency ? "✅" : "❌"}`);
+    console.log(`  Critical Field Accuracy: ${(evalResult.overallMetrics.criticalFieldAccuracy * 100).toFixed(1)}%\n`);
+
+    console.log("Field-Level Results:");
+    evalResult.fieldMetrics.forEach((fm) => {
+      const icon = fm.match ? "✅" : "❌";
+      const errorInfo = fm.errorType ? ` (${fm.errorType})` : "";
+      console.log(`  ${icon} ${fm.field}${errorInfo}`);
+      if (!fm.match) {
+        console.log(`     Extracted: ${JSON.stringify(fm.extractedValue)}`);
+        console.log(`     Expected:  ${JSON.stringify(fm.groundTruthValue)}`);
+      }
+    });
+
+    console.log("\n✅ Evaluation complete. Results saved to evaluation-dataset/evaluation_results.json");
+  } else if (command === "report") {
+    // Generate evaluation report
+    const phase = args[1] as "phase1" | "phase2" | "phase3" | undefined;
+
+    if (phase && !["phase1", "phase2", "phase3"].includes(phase)) {
+      console.error("Invalid phase. Must be: phase1, phase2, or phase3");
+      process.exit(1);
+    }
+
+    console.log(`\n📊 Generating evaluation report${phase ? ` for ${phase}` : " (all phases)"}...\n`);
+
+    const report = await generateEvaluationReport({phase});
+
+    console.log(report.summary);
+
+    if (Object.keys(report.byStudyDesign).length > 0) {
+      console.log("\nPerformance by Study Design:");
+      Object.entries(report.byStudyDesign).forEach(([design, metrics]: [string, any]) => {
+        console.log(`  ${design}: ${metrics.count} studies, Avg F1: ${(metrics.avgF1 * 100).toFixed(1)}%`);
+      });
+    }
+
+    if (Object.keys(report.byDifficulty).length > 0) {
+      console.log("\nPerformance by Difficulty:");
+      Object.entries(report.byDifficulty).forEach(([difficulty, metrics]: [string, any]) => {
+        console.log(`  ${difficulty}: ${metrics.count} studies, Avg F1: ${(metrics.avgF1 * 100).toFixed(1)}%`);
+      });
+    }
+
+    if (report.recommendations.length > 0) {
+      console.log("\n💡 Recommendations:");
+      report.recommendations.forEach((r) => {
+        console.log(`  • ${r}`);
+      });
+    }
   } else if (command === "help") {
     console.log(`
 🧠 Cerebellar SDC Extraction System
@@ -2614,15 +2812,19 @@ Storage: ${USE_LOCAL_STORAGE ? "LOCAL (./data/studies.json)" : "FIRESTORE"}
 MCP: genkit-cerebellar (exposing ${Object.keys({extractStudyData, checkAndSaveStudy, listStudies, searchSimilarStudies, evaluateExtraction}).length} flows)
 
 Commands:
-  chat [message]     - Collaborate with Gemini 3 Pro
-  pdf <file>         - Interactive chat with a specific PDF
-  extract <text>     - Extract structured data from PDF text
-  batch <dir> [n]    - Batch process PDFs from directory (n = concurrency)
-  search <query>     - RAG semantic search across indexed studies
-  eval <file>        - Extract and evaluate quality from a PDF
-  export [path]      - Export studies to CSV
-  list               - Show all studies in database
-  help               - Show this help
+  chat [message]           - Collaborate with Gemini 3 Pro
+  pdf <file>               - Interactive chat with a specific PDF
+  extract <text>           - Extract structured data from PDF text
+  batch <dir> [n]          - Batch process PDFs from directory (n = concurrency)
+  search <query>           - RAG semantic search across indexed studies
+  eval <file>              - Extract and evaluate quality from a PDF
+  export [path]            - Export studies to CSV
+  list                     - Show all studies in database
+  critique <file> [--mode] - Run critique/validation on extraction
+  annotate <study_id>      - Create/edit ground truth annotations (interactive)
+  evaluate-dataset <id>    - Evaluate extraction against ground truth
+  report [phase]           - Generate evaluation dataset report
+  help                     - Show this help
 
 PDF Chat Commands (inside pdf session):
   /summary           - Get a brief summary of the study
@@ -2644,6 +2846,11 @@ Environment Variables:
   USE_FIRESTORE=true    Use Firestore instead of local JSON storage
   GOOGLE_GENAI_API_KEY  Your Google AI API key
 
+Evaluation Dataset Workflow:
+  Phase 1: Baseline   - 15 papers regression testing + 5 ground truth
+  Phase 2: Expanded   - 20 ground truth + 10 challenge cases
+  Phase 3: Expert     - 50 papers with inter-rater reliability
+
 Examples:
   npm run genkit chat "How should I handle multicenter studies?"
   npm run genkit pdf ./pdfs/smith2022.pdf
@@ -2652,6 +2859,10 @@ Examples:
   npm run genkit batch ./pdfs 3
   npm run genkit export ./my_dataset.csv
   npm run genkit list
+  npm run genkit critique ./pdfs/smith2022.pdf --mode=AUTO
+  npm run genkit annotate Smith-2022
+  npm run genkit evaluate-dataset Smith-2022
+  npm run genkit report phase1
     `);
   } else {
     console.log("Unknown command. Use 'help' for available commands.");
