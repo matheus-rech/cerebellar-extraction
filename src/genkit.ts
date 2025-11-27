@@ -21,6 +21,13 @@ import {
   generateEvaluationReport,
   loadGroundTruth,
 } from "./evaluation/dataset.js";
+import {
+  mistralOCR,
+  ExtractedTableSchema,
+  ExtractedFigureSchema,
+  MistralOCRResultSchema,
+  mapTableToSchemaFields,
+} from "./mistral-ocr.js";
 const require = createRequire(import.meta.url);
 const {PDFParse} = require("pdf-parse");
 
@@ -821,6 +828,251 @@ export const analyzeFigures = ai.defineFlow(
         byType: typeCount,
       },
     };
+  }
+);
+
+// ==========================================
+// 7b. Mistral OCR Flows (High-Accuracy Table/Figure Extraction)
+// ==========================================
+
+/**
+ * Extract tables and figures from PDF using Mistral OCR
+ * 96.12% table accuracy, 94.29% math comprehension
+ * Cost: $0.001/page, Speed: 2,000 pages/minute
+ */
+export const extractWithMistralOCR = ai.defineFlow(
+  {
+    name: "extractWithMistralOCR",
+    inputSchema: z.object({
+      pdfPath: z.string().optional().describe("Local path to PDF file"),
+      pdfBase64: z.string().optional().describe("Base64-encoded PDF"),
+      pdfUrl: z.string().optional().describe("URL to publicly accessible PDF"),
+      includeFigureAnalysis: z.boolean().default(true),
+      includeTableParsing: z.boolean().default(true),
+    }),
+    outputSchema: MistralOCRResultSchema,
+  },
+  async ({pdfPath, pdfBase64, pdfUrl, includeFigureAnalysis, includeTableParsing}) => {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY not configured. Add it to .env file.");
+    }
+
+    console.log("🔍 Starting Mistral OCR extraction...");
+
+    const result = await mistralOCR.extract(
+      {pdfPath, pdfBase64, pdfUrl},
+      {includeFigureAnalysis, includeTableParsing}
+    );
+
+    console.log(`✅ Mistral OCR complete: ${result.tables.length} tables, ${result.figures.length} figures`);
+    console.log(`   Processing time: ${result.metadata.processingTimeMs}ms`);
+
+    return result;
+  }
+);
+
+/**
+ * Extract only tables from PDF using Mistral OCR (faster, no figure analysis)
+ */
+export const extractTablesWithMistral = ai.defineFlow(
+  {
+    name: "extractTablesWithMistral",
+    inputSchema: z.object({
+      pdfPath: z.string().optional(),
+      pdfBase64: z.string().optional(),
+      pdfUrl: z.string().optional(),
+    }),
+    outputSchema: z.array(ExtractedTableSchema),
+  },
+  async (input) => {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY not configured. Add it to .env file.");
+    }
+
+    console.log("📊 Extracting tables with Mistral OCR...");
+    const tables = await mistralOCR.extractTables(input);
+    console.log(`✅ Found ${tables.length} tables`);
+
+    // Log table types for debugging
+    const typeCount: Record<string, number> = {};
+    tables.forEach((t) => {
+      const type = t.tableType || "other";
+      typeCount[type] = (typeCount[type] || 0) + 1;
+    });
+    console.log("   Table types:", typeCount);
+
+    return tables;
+  }
+);
+
+/**
+ * Extract figures with structured data using Mistral BBox annotations
+ */
+export const extractFiguresWithMistral = ai.defineFlow(
+  {
+    name: "extractFiguresWithMistral",
+    inputSchema: z.object({
+      pdfPath: z.string().optional(),
+      pdfBase64: z.string().optional(),
+      pdfUrl: z.string().optional(),
+    }),
+    outputSchema: z.array(ExtractedFigureSchema),
+  },
+  async (input) => {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY not configured. Add it to .env file.");
+    }
+
+    console.log("📈 Extracting figures with Mistral OCR...");
+    const figures = await mistralOCR.extractFigures(input);
+    console.log(`✅ Found ${figures.length} figures`);
+
+    return figures;
+  }
+);
+
+/**
+ * Map extracted table to CerebellarSDCSchema fields
+ * Returns field paths and values for "Use in Form" functionality
+ */
+export const mapTableToSchema = ai.defineFlow(
+  {
+    name: "mapTableToSchema",
+    inputSchema: ExtractedTableSchema,
+    outputSchema: z.array(
+      z.object({
+        field: z.string().describe("Schema field path (e.g., 'population.age.mean.value')"),
+        value: z.any().describe("Extracted value"),
+        sourceText: z.string().describe("Source text from table cell"),
+      })
+    ),
+  },
+  async (table) => {
+    console.log(`🔗 Mapping table (${table.tableType}) to schema fields...`);
+    const mappings = mapTableToSchemaFields(table);
+    console.log(`✅ Found ${mappings.length} mappable fields`);
+    return mappings;
+  }
+);
+
+/**
+ * Semantic table analysis using Gemini for complex tables
+ * Understands context and can extract fields that simple parsing misses
+ */
+export const analyzeTableSemantically = ai.defineFlow(
+  {
+    name: "analyzeTableSemantically",
+    inputSchema: z.object({
+      markdownTable: z.string().describe("Table in markdown format"),
+      caption: z.string().optional(),
+      context: z.string().optional().describe("Surrounding text context"),
+    }),
+    outputSchema: z.object({
+      tableType: z.enum([
+        "demographics",
+        "baseline",
+        "outcomes",
+        "complications",
+        "flowchart",
+        "statistical",
+        "imaging",
+        "surgical",
+        "other",
+      ]),
+      extractedFields: z.array(
+        z.object({
+          field: z.string().describe("Schema field path"),
+          value: z.any(),
+          confidence: z.number().min(0).max(1),
+          sourceCell: z.string(),
+          reasoning: z.string().optional(),
+        })
+      ),
+      studyArmDetected: z
+        .object({
+          label: z.string(),
+          sampleSize: z.number().nullable(),
+          description: z.string().nullable(),
+        })
+        .nullable()
+        .describe("If this table represents a study arm/group"),
+      warnings: z.array(z.string()).describe("Potential issues or ambiguities"),
+    }),
+  },
+  async ({markdownTable, caption, context}) => {
+    console.log("🧠 Analyzing table semantically with Gemini...");
+
+    const prompt = `You are a medical research data extraction expert specializing in cerebellar stroke and suboccipital decompressive craniectomy (SDC) studies.
+
+Analyze this table and extract relevant data fields for our CerebellarSDCSchema.
+
+${caption ? `Table Caption: ${caption}` : ""}
+${context ? `Context: ${context}` : ""}
+
+Table:
+${markdownTable}
+
+Schema fields to look for:
+- population.sampleSize: Total N
+- population.age.mean/sd: Age statistics
+- population.gcs.median/range: Glasgow Coma Scale
+- population.hydrocephalus.percentage: % with hydrocephalus
+- intervention.technique: Surgical technique description
+- intervention.evdUsed: Whether EVD was used
+- intervention.duraplasty: Whether duraplasty was performed
+- outcomes.mortality: Mortality rate/count
+- outcomes.mRS_favorable: % with favorable mRS (0-2 or 0-3)
+- outcomes.lengthOfStay: ICU/hospital stay
+- outcomes.complications: List of complications
+
+Respond with structured JSON containing:
+1. tableType: The category of this table
+2. extractedFields: Array of {field, value, confidence, sourceCell, reasoning}
+3. studyArmDetected: If this table represents a treatment group, provide label/size/description
+4. warnings: Any ambiguities or potential issues`;
+
+    const response = await ai.generate({
+      model: "googleai/gemini-2.0-flash",
+      prompt,
+      output: {
+        format: "json",
+        schema: z.object({
+          tableType: z.enum([
+            "demographics",
+            "baseline",
+            "outcomes",
+            "complications",
+            "flowchart",
+            "statistical",
+            "imaging",
+            "surgical",
+            "other",
+          ]),
+          extractedFields: z.array(
+            z.object({
+              field: z.string(),
+              value: z.any(),
+              confidence: z.number(),
+              sourceCell: z.string(),
+              reasoning: z.string().optional(),
+            })
+          ),
+          studyArmDetected: z
+            .object({
+              label: z.string(),
+              sampleSize: z.number().nullable(),
+              description: z.string().nullable(),
+            })
+            .nullable(),
+          warnings: z.array(z.string()),
+        }),
+      },
+    });
+
+    const result = response.output!;
+    console.log(`✅ Semantic analysis complete: ${result.extractedFields.length} fields extracted`);
+
+    return result;
   }
 );
 
@@ -2805,6 +3057,135 @@ What's the best next step for production use?`;
         console.log(`  • ${r}`);
       });
     }
+  } else if (command === "tables") {
+    // Mistral OCR table extraction
+    const pdfPath = args[1];
+    const outputFormat = args.includes("--json") ? "json" : "markdown";
+    const analyzeSemantics = args.includes("--analyze");
+
+    if (!pdfPath) {
+      console.error("Usage: npm run genkit tables <pdf_file> [--json] [--analyze]");
+      console.error("\nOptions:");
+      console.error("  --json     Output as JSON instead of markdown");
+      console.error("  --analyze  Run semantic analysis on each table");
+      console.error("\nExample:");
+      console.error("  npm run genkit tables ./pdfs/smith2022.pdf");
+      console.error("  npm run genkit tables ./pdfs/smith2022.pdf --analyze");
+      process.exit(1);
+    }
+
+    if (!process.env.MISTRAL_API_KEY) {
+      console.error("❌ MISTRAL_API_KEY not configured. Add it to .env file.");
+      console.error("   Get your key from: https://console.mistral.ai/");
+      process.exit(1);
+    }
+
+    const absolutePath = path.resolve(pdfPath);
+    if (!fs.existsSync(absolutePath)) {
+      console.error(`❌ File not found: ${absolutePath}`);
+      process.exit(1);
+    }
+
+    console.log(`\n📊 Extracting tables from ${path.basename(absolutePath)} with Mistral OCR...\n`);
+
+    const tables = await extractTablesWithMistral({pdfPath: absolutePath});
+
+    if (tables.length === 0) {
+      console.log("No tables found in this PDF.");
+      process.exit(0);
+    }
+
+    console.log(`Found ${tables.length} tables:\n`);
+
+    if (analyzeSemantics) {
+      // Run semantic analysis on each table
+      for (let i = 0; i < tables.length; i++) {
+        const table = tables[i];
+        console.log(`\n=== Table ${i + 1} (Page ${table.pageNumber}) ===`);
+        console.log(`Type: ${table.tableType || "unknown"}`);
+        if (table.caption) console.log(`Caption: ${table.caption}`);
+
+        console.log("\nRunning semantic analysis...");
+        const analysis = await analyzeTableSemantically({
+          markdownTable: table.markdownTable,
+          caption: table.caption || undefined,
+        });
+
+        console.log(`Detected type: ${analysis.tableType}`);
+        console.log(`\nExtracted fields (${analysis.extractedFields.length}):`);
+        analysis.extractedFields.forEach((f) => {
+          console.log(`  • ${f.field}: ${f.value} (${(f.confidence * 100).toFixed(0)}%)`);
+          if (f.reasoning) console.log(`    Reasoning: ${f.reasoning}`);
+        });
+
+        if (analysis.studyArmDetected) {
+          console.log(`\nStudy arm detected:`);
+          console.log(`  Label: ${analysis.studyArmDetected.label}`);
+          console.log(`  N: ${analysis.studyArmDetected.sampleSize}`);
+        }
+
+        if (analysis.warnings.length > 0) {
+          console.log(`\n⚠️ Warnings:`);
+          analysis.warnings.forEach((w) => console.log(`  • ${w}`));
+        }
+      }
+    } else if (outputFormat === "json") {
+      console.log(JSON.stringify(tables, null, 2));
+    } else {
+      // Markdown output
+      tables.forEach((table, i) => {
+        console.log(`\n=== Table ${i + 1} (Page ${table.pageNumber}) ===`);
+        console.log(`Type: ${table.tableType || "unknown"}`);
+        if (table.caption) console.log(`Caption: ${table.caption}`);
+        console.log(`\n${table.markdownTable}`);
+      });
+    }
+  } else if (command === "figures") {
+    // Mistral OCR figure extraction
+    const pdfPath = args[1];
+
+    if (!pdfPath) {
+      console.error("Usage: npm run genkit figures <pdf_file>");
+      console.error("\nExample: npm run genkit figures ./pdfs/smith2022.pdf");
+      process.exit(1);
+    }
+
+    if (!process.env.MISTRAL_API_KEY) {
+      console.error("❌ MISTRAL_API_KEY not configured. Add it to .env file.");
+      process.exit(1);
+    }
+
+    const absolutePath = path.resolve(pdfPath);
+    if (!fs.existsSync(absolutePath)) {
+      console.error(`❌ File not found: ${absolutePath}`);
+      process.exit(1);
+    }
+
+    console.log(`\n📈 Extracting figures from ${path.basename(absolutePath)} with Mistral OCR...\n`);
+
+    const figures = await extractFiguresWithMistral({pdfPath: absolutePath});
+
+    if (figures.length === 0) {
+      console.log("No figures found in this PDF.");
+      process.exit(0);
+    }
+
+    console.log(`Found ${figures.length} figures:\n`);
+
+    figures.forEach((fig, i) => {
+      console.log(`\n=== Figure ${i + 1} (Page ${fig.pageNumber}) ===`);
+      console.log(`Type: ${fig.figureType}`);
+      if (fig.caption) console.log(`Caption: ${fig.caption}`);
+      if (fig.summary) console.log(`Summary: ${fig.summary}`);
+      if (fig.clinicalRelevance) console.log(`Clinical Relevance: ${fig.clinicalRelevance}`);
+
+      if (fig.extractedValues.length > 0) {
+        console.log(`\nExtracted values:`);
+        fig.extractedValues.forEach((v) => {
+          console.log(`  • ${v.label}: ${v.value} (${(v.confidence * 100).toFixed(0)}%)`);
+        });
+      }
+    });
   } else if (command === "help") {
     console.log(`
 🧠 Cerebellar SDC Extraction System
@@ -2821,6 +3202,8 @@ Commands:
   export [path]            - Export studies to CSV
   list                     - Show all studies in database
   critique <file> [--mode] - Run critique/validation on extraction
+  tables <file> [--json] [--analyze]  - Extract tables with Mistral OCR (96% accuracy)
+  figures <file>           - Extract figures/charts with Mistral OCR
   annotate <study_id>      - Create/edit ground truth annotations (interactive)
   evaluate-dataset <id>    - Evaluate extraction against ground truth
   report [phase]           - Generate evaluation dataset report

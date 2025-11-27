@@ -14,6 +14,8 @@ npm run genkit search "<query>"  # RAG semantic search
 npm run genkit export [path]     # Export to CSV
 npm run genkit list              # List stored studies
 npm run genkit critique <file> [--mode=AUTO|REVIEW]  # Validate extraction quality
+npm run genkit tables <file> [--json] [--analyze]   # Extract tables with Mistral OCR
+npm run genkit figures <file>                       # Extract figures/charts with Mistral OCR
 
 # Build
 npm run build                    # Compile TypeScript
@@ -110,6 +112,40 @@ Four specialized evaluators with weighted scoring:
 - FigureDataSchema supports 14 types: flowchart, bar_chart, kaplan_meier, CT scan, etc.
 - Batch processing with concurrency control (pLimit)
 - Extracts: figure type, caption, data points with confidence scores, clinical relevance
+
+**Mistral OCR Integration** (`src/mistral-ocr.ts`):
+
+High-accuracy document understanding using Mistral's Document AI:
+
+- **Performance**: 96.12% table accuracy, 94.29% math comprehension
+- **Cost**: $0.001/page, Speed: 2,000 pages/minute
+- **Output**: Markdown with preserved structure + structured JSON
+
+**Genkit Flows**:
+
+- `extractWithMistralOCR` - Full extraction (tables + figures + markdown)
+- `extractTablesWithMistral` - Tables only (faster)
+- `extractFiguresWithMistral` - Figures with BBox annotations
+- `mapTableToSchema` - Map table data to CerebellarSDCSchema fields
+- `analyzeTableSemantically` - Gemini-powered semantic table understanding
+
+**CLI Commands**:
+
+```bash
+npm run genkit tables ./study.pdf              # Extract tables (markdown)
+npm run genkit tables ./study.pdf --json       # Output as JSON
+npm run genkit tables ./study.pdf --analyze    # With Gemini semantic analysis
+npm run genkit figures ./study.pdf             # Extract figures/charts
+```
+
+**Table Types Detected**:
+
+- demographics, baseline, outcomes, complications
+- flowchart, statistical, imaging, surgical, other
+
+**Schema Mapping**: Tables are automatically mapped to CerebellarSDCSchema fields via `mapTableToSchemaFields()`, enabling "Use in Form" functionality.
+
+**Environment**: Requires `MISTRAL_API_KEY` in `.env` file.
 
 **Evaluation Dataset System** (`src/evaluation/dataset.ts`):
 
