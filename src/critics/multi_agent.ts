@@ -165,98 +165,80 @@ const triageTool = ai.defineTool(
 // SHARED CONTEXT TOOLS (Inter-Agent Communication)
 // ============================================================================
 
-let sharedContext: z.infer<typeof SharedContextSchema> = {
-  findings: [],
-  crossReferences: [],
-};
+// Type for flow-scoped shared context (NOT module-level to avoid concurrency issues)
+type SharedContext = z.infer<typeof SharedContextSchema>;
 
 /**
- * Tool for agents to share findings with other agents
+ * Creates flow-scoped tools that operate on an isolated context.
+ * This prevents concurrent flow executions from corrupting each other's state.
+ *
+ * IMPORTANT: Each flow invocation gets its own context via closure.
+ * See: https://github.com/matheus-rech/cerebellar-extraction/pull/1#discussion_r2570029650
  */
-const shareFindingTool = ai.defineTool(
-  {
-    name: "shareFinding",
-    description: "Share a finding with other critic agents for cross-validation",
-    inputSchema: AgentFindingSchema,
-    outputSchema: z.object({success: z.boolean()}),
-  },
-  async (finding) => {
-    sharedContext.findings.push(finding);
-    return {success: true};
-  }
-);
-
-/**
- * Tool for agents to read findings from other agents
- */
-const readFindingsTool = ai.defineTool(
-  {
-    name: "readFindings",
-    description: "Read findings shared by other critic agents",
-    inputSchema: z.object({
-      fromAgent: z.string().optional().describe("Filter by specific agent"),
-      severity: z.enum(["CRITICAL", "WARNING", "INFO"]).optional(),
-    }),
-    outputSchema: z.object({
-      findings: z.array(AgentFindingSchema),
-    }),
-  },
-  async ({fromAgent, severity}) => {
-    let results = sharedContext.findings;
-    if (fromAgent) {
-      results = results.filter((f) => f.agentId === fromAgent);
+function createScopedTools(context: SharedContext) {
+  const shareFindingTool = ai.defineTool(
+    {
+      name: "shareFinding",
+      description: "Share a finding with other critic agents for cross-validation",
+      inputSchema: AgentFindingSchema,
+      outputSchema: z.object({success: z.boolean()}),
+    },
+    async (finding) => {
+      context.findings.push(finding);
+      return {success: true};
     }
-    if (severity) {
-      results = results.filter((f) => f.severity === severity);
-    }
-    return {findings: results};
-  }
-);
+  );
 
-/**
- * Tool for agents to send messages to specific other agents
- */
-const crossReferenceTool = ai.defineTool(
-  {
-    name: "crossReference",
-    description: "Send a message to another critic agent about related findings",
-    inputSchema: z.object({
-      fromAgent: z.string(),
-      toAgent: z.string(),
-      message: z.string(),
-    }),
-    outputSchema: z.object({success: z.boolean()}),
-  },
-  async (ref) => {
-    sharedContext.crossReferences.push(ref);
-    return {success: true};
-  }
-);
-
-// ============================================================================
-// CRITIC AGENT DEFINITIONS
-// ============================================================================
-
-/**
- * Math Consistency Critic Agent
- * Checks percentage/N mismatches, subgroup sums
- */
-const mathConsistencyAgent = ai.definePrompt(
-  {
-    name: "mathConsistencyAgent",
-    description: "Validates mathematical consistency in extraction",
-    tools: [shareFindingTool, readFindingsTool, crossReferenceTool],
-    input: {
-      schema: z.object({
-        population: z.any(),
-        outcomes: z.any(),
+  const readFindingsTool = ai.defineTool(
+    {
+      name: "readFindings",
+      description: "Read findings shared by other critic agents",
+      inputSchema: z.object({
+        fromAgent: z.string().optional().describe("Filter by specific agent"),
+        severity: z.enum(["CRITICAL", "WARNING", "INFO"]).optional(),
+      }),
+      outputSchema: z.object({
+        findings: z.array(AgentFindingSchema),
       }),
     },
-    output: {
-      schema: CriticResultSchema,
+    async ({fromAgent, severity}) => {
+      let results = context.findings;
+      if (fromAgent) {
+        results = results.filter((f) => f.agentId === fromAgent);
+      }
+      if (severity) {
+        results = results.filter((f) => f.severity === severity);
+      }
+      return {findings: results};
+    }
+  );
+
+  const crossReferenceTool = ai.defineTool(
+    {
+      name: "crossReference",
+      description: "Send a message to another critic agent about related findings",
+      inputSchema: z.object({
+        fromAgent: z.string(),
+        toAgent: z.string(),
+        message: z.string(),
+      }),
+      outputSchema: z.object({success: z.boolean()}),
     },
-  },
-  `You are a mathematical consistency validator for medical study extractions.
+    async (ref) => {
+      context.crossReferences.push(ref);
+      return {success: true};
+    }
+  );
+
+  return {shareFindingTool, readFindingsTool, crossReferenceTool};
+}
+
+// ============================================================================
+// CRITIC AGENT FACTORIES
+// ============================================================================
+
+// Prompt templates (static strings - reusable across invocations)
+const MATH_CONSISTENCY_PROMPT = `You are a mathematical consistency validator for medical study extractions.
 
 Your job is to check:
 1. Percentages match N values (e.g., 30% of 100 = 30 patients)
@@ -270,29 +252,9 @@ Data to analyze:
 Population: {{population}}
 Outcomes: {{outcomes}}
 
-Return your findings as a CriticResult.`
-);
+Return your findings as a CriticResult.`;
 
-/**
- * Scale Inversion Critic Agent
- * Detects mRS vs GOS confusion
- */
-const scaleInversionAgent = ai.definePrompt(
-  {
-    name: "scaleInversionAgent",
-    description: "Detects scale confusion (mRS vs GOS)",
-    tools: [shareFindingTool, readFindingsTool, crossReferenceTool],
-    input: {
-      schema: z.object({
-        outcomes: z.any(),
-        pdfText: z.string().optional(),
-      }),
-    },
-    output: {
-      schema: CriticResultSchema,
-    },
-  },
-  `You are a clinical scale expert validating outcome interpretations.
+const SCALE_INVERSION_PROMPT = `You are a clinical scale expert validating outcome interpretations.
 
 CRITICAL KNOWLEDGE:
 - mRS: 0 = no symptoms, 6 = death (LOWER is better)
@@ -312,29 +274,9 @@ Outcomes: {{outcomes}}
 Source text (first 10000 chars): {{pdfText}}
 {{/if}}
 
-Return your findings as a CriticResult.`
-);
+Return your findings as a CriticResult.`;
 
-/**
- * Source Citation Critic Agent
- * Verifies extracted values against source text
- */
-const sourceCitationAgent = ai.definePrompt(
-  {
-    name: "sourceCitationAgent",
-    description: "Verifies extracted values match source text",
-    tools: [shareFindingTool, readFindingsTool, crossReferenceTool],
-    input: {
-      schema: z.object({
-        extractedData: z.any(),
-        pdfText: z.string(),
-      }),
-    },
-    output: {
-      schema: CriticResultSchema,
-    },
-  },
-  `You are a source verification expert checking extraction accuracy.
+const SOURCE_CITATION_PROMPT = `You are a source verification expert checking extraction accuracy.
 
 Your job:
 1. Verify each VerifiableField's value matches its sourceText
@@ -351,49 +293,89 @@ Use shareFinding for any mismatches - cross-reference with other agents.
 Data: {{extractedData}}
 Source (first 30000 chars): {{pdfText}}
 
-Return your findings as a CriticResult.`
-);
+Return your findings as a CriticResult.`;
+
+/**
+ * Factory to create scoped critic agents.
+ * Each invocation creates agents with tools bound to the flow's isolated context.
+ */
+function createScopedAgents(tools: ReturnType<typeof createScopedTools>) {
+  const {shareFindingTool, readFindingsTool, crossReferenceTool} = tools;
+
+  /**
+   * Math Consistency Critic Agent
+   * Checks percentage/N mismatches, subgroup sums
+   */
+  const mathConsistencyAgent = ai.definePrompt(
+    {
+      name: "mathConsistencyAgent",
+      description: "Validates mathematical consistency in extraction",
+      tools: [shareFindingTool, readFindingsTool, crossReferenceTool],
+      input: {
+        schema: z.object({
+          population: z.any(),
+          outcomes: z.any(),
+        }),
+      },
+      output: {
+        schema: CriticResultSchema,
+      },
+    },
+    MATH_CONSISTENCY_PROMPT
+  );
+
+  /**
+   * Scale Inversion Critic Agent
+   * Detects mRS vs GOS confusion
+   */
+  const scaleInversionAgent = ai.definePrompt(
+    {
+      name: "scaleInversionAgent",
+      description: "Detects scale confusion (mRS vs GOS)",
+      tools: [shareFindingTool, readFindingsTool, crossReferenceTool],
+      input: {
+        schema: z.object({
+          outcomes: z.any(),
+          pdfText: z.string().optional(),
+        }),
+      },
+      output: {
+        schema: CriticResultSchema,
+      },
+    },
+    SCALE_INVERSION_PROMPT
+  );
+
+  /**
+   * Source Citation Critic Agent
+   * Verifies extracted values against source text
+   */
+  const sourceCitationAgent = ai.definePrompt(
+    {
+      name: "sourceCitationAgent",
+      description: "Verifies extracted values match source text",
+      tools: [shareFindingTool, readFindingsTool, crossReferenceTool],
+      input: {
+        schema: z.object({
+          extractedData: z.any(),
+          pdfText: z.string(),
+        }),
+      },
+      output: {
+        schema: CriticResultSchema,
+      },
+    },
+    SOURCE_CITATION_PROMPT
+  );
+
+  return {mathConsistencyAgent, scaleInversionAgent, sourceCitationAgent};
+}
 
 // ============================================================================
 // SYNTHESIZER AGENT
 // ============================================================================
 
-/**
- * Synthesizer Agent
- * Aggregates findings from all critic agents and generates final report
- */
-const synthesizerAgent = ai.definePrompt(
-  {
-    name: "synthesizerAgent",
-    description: "Synthesizes findings from all critic agents",
-    tools: [readFindingsTool],
-    input: {
-      schema: z.object({
-        agentResults: z.array(CriticResultSchema),
-        sharedFindings: z.array(AgentFindingSchema),
-        crossReferences: z.array(z.object({
-          fromAgent: z.string(),
-          toAgent: z.string(),
-          message: z.string(),
-        })),
-      }),
-    },
-    output: {
-      schema: z.object({
-        overallConfidence: z.number().min(0).max(1),
-        criticalIssueCount: z.number(),
-        warningCount: z.number(),
-        consensusIssues: z.array(CritiqueIssueSchema),
-        disagreements: z.array(z.object({
-          field: z.string(),
-          agents: z.array(z.string()),
-          description: z.string(),
-        })),
-        synthesizedSummary: z.string(),
-      }),
-    },
-  },
-  `You are the synthesis agent responsible for aggregating critic findings.
+const SYNTHESIZER_PROMPT = `You are the synthesis agent responsible for aggregating critic findings.
 
 Your job:
 1. Identify issues where multiple agents agree (high confidence)
@@ -410,8 +392,48 @@ Weight issues by:
 - CRITICAL severity = highest weight
 - Source verification issues = blocking
 
-Return synthesized analysis.`
-);
+Return synthesized analysis.`;
+
+/**
+ * Factory to create scoped synthesizer agent
+ */
+function createScopedSynthesizer(tools: ReturnType<typeof createScopedTools>) {
+  const {readFindingsTool} = tools;
+
+  return ai.definePrompt(
+    {
+      name: "synthesizerAgent",
+      description: "Synthesizes findings from all critic agents",
+      tools: [readFindingsTool],
+      input: {
+        schema: z.object({
+          agentResults: z.array(CriticResultSchema),
+          sharedFindings: z.array(AgentFindingSchema),
+          crossReferences: z.array(z.object({
+            fromAgent: z.string(),
+            toAgent: z.string(),
+            message: z.string(),
+          })),
+        }),
+      },
+      output: {
+        schema: z.object({
+          overallConfidence: z.number().min(0).max(1),
+          criticalIssueCount: z.number(),
+          warningCount: z.number(),
+          consensusIssues: z.array(CritiqueIssueSchema),
+          disagreements: z.array(z.object({
+            field: z.string(),
+            agents: z.array(z.string()),
+            description: z.string(),
+          })),
+          synthesizedSummary: z.string(),
+        }),
+      },
+    },
+    SYNTHESIZER_PROMPT
+  );
+}
 
 // ============================================================================
 // MAIN MULTI-AGENT ORCHESTRATION FLOW
@@ -448,8 +470,15 @@ export const multiAgentCritique = ai.defineFlow(
     }),
   },
   async ({extractedData, pdfText}) => {
-    // Reset shared context for this run
-    sharedContext = {findings: [], crossReferences: []};
+    // Create FLOW-SCOPED context - isolated from concurrent executions
+    // This fixes the concurrency bug where module-level state was shared
+    // See: https://github.com/matheus-rech/cerebellar-extraction/pull/1#discussion_r2570029650
+    const flowContext: SharedContext = {findings: [], crossReferences: []};
+
+    // Create scoped tools and agents bound to this flow's context
+    const scopedTools = createScopedTools(flowContext);
+    const {mathConsistencyAgent, scaleInversionAgent, sourceCitationAgent} = createScopedAgents(scopedTools);
+    const synthesizerAgent = createScopedSynthesizer(scopedTools);
 
     console.log("🎯 Multi-Agent Critique: Starting triage...");
 
@@ -533,8 +562,8 @@ export const multiAgentCritique = ai.defineFlow(
 
     const synthesisResult = await synthesizerAgent({
       agentResults: successfulResults,
-      sharedFindings: sharedContext.findings,
-      crossReferences: sharedContext.crossReferences,
+      sharedFindings: flowContext.findings,
+      crossReferences: flowContext.crossReferences,
     });
 
     const synthesis = synthesisResult.output || {
@@ -555,13 +584,19 @@ export const multiAgentCritique = ai.defineFlow(
       executionStats: {
         agentsRun: successfulResults.length,
         agentsSkipped: Object.keys(triageDecision.skipReason || {}).length,
-        totalFindings: sharedContext.findings.length,
-        crossReferences: sharedContext.crossReferences.length,
+        totalFindings: flowContext.findings.length,
+        crossReferences: flowContext.crossReferences.length,
       },
     };
   }
 );
 
 // Export for use in main orchestrator
-export {triageTool, shareFindingTool, readFindingsTool, crossReferenceTool};
-export {mathConsistencyAgent, scaleInversionAgent, sourceCitationAgent, synthesizerAgent};
+export {triageTool};
+
+// Export factories for creating scoped tools and agents
+// IMPORTANT: Use these factories to create isolated contexts for concurrent execution
+export {createScopedTools, createScopedAgents, createScopedSynthesizer};
+
+// Export schemas and types for external use
+export {SharedContextSchema, AgentFindingSchema, TriageDecisionSchema};

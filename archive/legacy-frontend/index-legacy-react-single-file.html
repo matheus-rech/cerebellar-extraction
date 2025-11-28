@@ -1,0 +1,2736 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CEREBELLAR-EXTRACT - Data Extraction Tool</title>
+
+  <!-- Firebase SDKs (Compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-performance-compat.js"></script>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- External CSS -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <!-- Configuration injection - create public/config.js with your keys (gitignored) -->
+  <script src="config.js" onerror="console.warn('config.js not found - using placeholders. Create config.js from config.example.js')"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // --- GLOBAL CONFIGURATION ---
+    // Keys are loaded from config.js (not committed to git)
+    // For local dev: copy config.example.js to config.js and add your keys
+    // For production: set via Firebase hosting environment
+
+    // Firebase Config - Updated for Firebase AI Logic / Data Connect
+    const firebaseConfig = {
+      apiKey: window.__FIREBASE_API_KEY__ || "YOUR_FIREBASE_API_KEY",
+      authDomain: "cerebellar-extraction.firebaseapp.com",
+      projectId: "cerebellar-extraction",
+      storageBucket: "cerebellar-extraction.firebasestorage.app",
+      messagingSenderId: "1019192870442",
+      appId: "1:1019192870442:web:0bea61ff2c9435c63c6553",
+      measurementId: "G-GH46289Z2Z"
+    };
+
+    // Initialize Firebase
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const app = firebase.app();
+
+    // CRITICAL: Connect to emulators BEFORE creating service instances
+    // This must happen immediately after initializeApp() and before calling firebase.auth() or firebase.firestore()
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.log('🔧 Connecting to Firebase Emulators...');
+      try {
+        firebase.auth().useEmulator('http://127.0.0.1:9099');
+        console.log('✅ Connected to Auth Emulator: http://127.0.0.1:9099');
+      } catch (e) { console.warn('⚠️ Auth emulator not available:', e.message); }
+
+      try {
+        firebase.firestore().useEmulator('127.0.0.1', 8080);
+        console.log('✅ Connected to Firestore Emulator: 127.0.0.1:8080');
+      } catch (e) { console.warn('⚠️ Firestore emulator not available:', e.message); }
+
+      try {
+        firebase.storage().useEmulator('127.0.0.1', 9199);
+        console.log('✅ Connected to Storage Emulator: 127.0.0.1:9199');
+      } catch (e) { console.warn('⚠️ Storage emulator not available:', e.message); }
+
+      try {
+        firebase.functions().useEmulator('127.0.0.1', 5001);
+        console.log('✅ Connected to Functions Emulator: 127.0.0.1:5001');
+      } catch (e) { console.warn('⚠️ Functions emulator not available:', e.message); }
+    }
+
+    // Now create service instances (these will use the emulator connections)
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const storage = firebase.storage();
+    const analytics = firebase.analytics();
+    const perf = firebase.performance();
+
+    const appId = "cerebellar-extraction";
+    const apiKey = window.__GEMINI_API_KEY__ || "YOUR_GEMINI_API_KEY"; // Gemini API key (set in config.js)
+
+    // Genkit Flow Server URL (for chat with RAG + citations)
+    const GENKIT_SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:3400'  // Local Genkit server
+      : 'https://cerebellar-extraction.web.app/genkit'; // Production (if deployed)
+
+    // Inline SVGs to replace Lucide Icons
+    const Icons = {
+      Wand2: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z" /><path d="m14 7 3 3" /><path d="M5 6v4" /><path d="M19 14v4" /><path d="M10 2v2" /><path d="M7 8H3" /><path d="M21 16h-4" /><path d="M11 3H9" /></svg>,
+      MessageSquare: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
+      FileText: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" x2="8" y1="13" y2="13" /><line x1="16" x2="8" y1="17" y2="17" /><line x1="10" x2="8" y1="9" y2="9" /></svg>,
+      Send: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>,
+      ChevronDown: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m6 9 6 6 6-6" /></svg>,
+      ChevronRight: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m9 18 6-6-6-6" /></svg>,
+      Quote: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /></svg>,
+      Activity: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>,
+      Cloud: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M17.5 19c0-1.7-1.3-3-3-3h-11a3 3 0 0 1-.3-6 5 5 0 0 1 9.7-1.5 4 4 0 0 1 7.9 2.3 2.2 2.2 0 0 1 .2.9 2.5 2.5 0 0 1-2.5 2.3Z" /></svg>,
+      Check: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 6 9 17l-5-5" /></svg>,
+      Table: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 3h18v18H3z" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M12 3v18" /></svg>,
+      Image: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>,
+      BookOpen: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>,
+      Folder: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>,
+      Trash2: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" /></svg>,
+      Download: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>,
+      RefreshCw: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></svg>,
+      Library: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m16 6 4 14" /><path d="M12 6v14" /><path d="M8 8v12" /><path d="M4 4v16" /></svg>,
+      Upload: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>,
+      Plus: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M5 12h14" /><path d="M12 5v14" /></svg>,
+      AlertCircle: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg>,
+      Clock: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+    };
+
+    // ==========================================
+    // Paper Storage Utilities (Firebase Storage + Firestore)
+    // ==========================================
+
+    /**
+     * Upload a PDF to Firebase Storage and store metadata in Firestore
+     * @param {File} file - The PDF file to upload
+     * @param {Object} options - Upload options
+     * @returns {Promise<{paperId: string, downloadURL: string}>}
+     */
+    async function uploadPaper(file, options = {}) {
+      const paperId = options.paperId || `paper_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const fileName = file.name;
+      const fileSize = file.size;
+
+      // Create storage reference
+      const storageRef = storage.ref(`papers/${paperId}/${fileName}`);
+
+      // Upload file with progress tracking
+      const uploadTask = storageRef.put(file);
+
+      return new Promise((resolve, reject) => {
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            if (options.onProgress) {
+              options.onProgress(progress);
+            }
+          },
+          (error) => {
+            console.error('Upload error:', error);
+            reject(error);
+          },
+          async () => {
+            try {
+              // Get download URL
+              const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+
+              // Store metadata in Firestore
+              await db.collection('papers').doc(paperId).set({
+                paperId,
+                fileName,
+                fileSize,
+                storagePath: `papers/${paperId}/${fileName}`,
+                downloadURL,
+                uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                status: 'uploaded', // uploaded → processing → processed → error
+                extractedText: null,
+                chunks: null,
+                metadata: options.metadata || {},
+              });
+
+              console.log(`✅ Uploaded: ${fileName} → ${paperId}`);
+              resolve({ paperId, downloadURL, fileName });
+            } catch (error) {
+              console.error('Firestore error:', error);
+              reject(error);
+            }
+          }
+        );
+      });
+    }
+
+    /**
+     * Get all papers from Firestore
+     * @returns {Promise<Array>}
+     */
+    async function getPapers() {
+      const snapshot = await db.collection('papers')
+        .orderBy('uploadedAt', 'desc')
+        .get();
+
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        uploadedAt: doc.data().uploadedAt?.toDate?.() || new Date(),
+      }));
+    }
+
+    /**
+     * Get a single paper by ID
+     * @param {string} paperId
+     * @returns {Promise<Object|null>}
+     */
+    async function getPaper(paperId) {
+      const doc = await db.collection('papers').doc(paperId).get();
+      if (!doc.exists) return null;
+      return {
+        id: doc.id,
+        ...doc.data(),
+        uploadedAt: doc.data().uploadedAt?.toDate?.() || new Date(),
+      };
+    }
+
+    /**
+     * Update paper metadata/status in Firestore
+     * @param {string} paperId
+     * @param {Object} updates
+     */
+    async function updatePaper(paperId, updates) {
+      await db.collection('papers').doc(paperId).update({
+        ...updates,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    /**
+     * Delete a paper from Storage and Firestore
+     * @param {string} paperId
+     */
+    async function deletePaper(paperId) {
+      const paper = await getPaper(paperId);
+      if (!paper) return;
+
+      // Delete from Storage
+      if (paper.storagePath) {
+        try {
+          await storage.ref(paper.storagePath).delete();
+        } catch (e) {
+          console.warn('Storage delete failed (may not exist):', e);
+        }
+      }
+
+      // Delete from Firestore
+      await db.collection('papers').doc(paperId).delete();
+      console.log(`🗑️ Deleted paper: ${paperId}`);
+    }
+
+    /**
+     * Download PDF content as ArrayBuffer (for processing)
+     * @param {string} downloadURL
+     * @returns {Promise<ArrayBuffer>}
+     */
+    async function downloadPaperContent(downloadURL) {
+      const response = await fetch(downloadURL);
+      return await response.arrayBuffer();
+    }
+
+    /**
+     * Process a paper: extract text and create chunks
+     * Uses Python Cloud Functions for extraction
+     * @param {string} paperId
+     */
+    async function processPaper(paperId) {
+      const paper = await getPaper(paperId);
+      if (!paper) throw new Error('Paper not found');
+
+      await updatePaper(paperId, { status: 'processing' });
+
+      try {
+        // Download PDF content
+        const pdfBuffer = await downloadPaperContent(paper.downloadURL);
+        const pdfBase64 = btoa(
+          new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+        );
+
+        // Call Python Cloud Function for text extraction
+        const extractFn = firebase.functions().httpsCallable('extract_text_with_layout');
+        let extractedText = '';
+        let pages = [];
+
+        try {
+          // Try callable function first
+          const result = await extractFn({ pdf_base64: pdfBase64 });
+          extractedText = result.data.text;
+          pages = result.data.pages;
+        } catch (e) {
+          // Fallback to direct HTTP call
+          const response = await fetch(
+            window.location.hostname === 'localhost'
+              ? 'http://127.0.0.1:5001/cerebellar-extraction/us-central1/extract_text_with_layout'
+              : 'https://us-central1-cerebellar-extraction.cloudfunctions.net/extract_text_with_layout',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pdf_base64: pdfBase64 }),
+            }
+          );
+          const data = await response.json();
+          extractedText = data.text;
+          pages = data.pages;
+        }
+
+        // Update Firestore with extracted content
+        await updatePaper(paperId, {
+          status: 'processed',
+          extractedText: extractedText.substring(0, 1000000), // Firestore 1MB limit
+          pageCount: pages?.length || 0,
+          processedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`✅ Processed: ${paper.fileName} (${pages?.length || 0} pages)`);
+        return { extractedText, pages };
+      } catch (error) {
+        await updatePaper(paperId, { status: 'error', errorMessage: error.message });
+        throw error;
+      }
+    }
+
+    const FIELD_MAP = {
+      "Study ID": "study_id",
+      "Authors": "authors",
+      "Year": "year",
+      "Title": "title",
+      "Sample Size": "population.sample_size",
+      "Mean Age": "population.mean_age",
+      "Inclusion Criteria": "population.inclusion_criteria",
+      "Intervention": "intervention.procedure",
+      "Intervention Timing": "intervention.timing_hours",
+      "Intervention Technique": "intervention.technique",
+      "Comparator": "comparator",
+      "Mortality": "outcomes.mortality",
+      "mRS Outcome": "outcomes.mRS_favorable",
+      "Complications": "outcomes.complications",
+      "Length of Stay": "outcomes.length_of_stay",
+      "Follow-up Duration": "timing.follow_up_duration",
+      "Study Design": "study_design",
+      "Newcastle-Ottawa Score": "newcastle_ottawa_score"
+    };
+
+    const GEMINI_SCHEMA = {
+      type: "OBJECT",
+      properties: {
+        study_id: { type: "STRING", description: "First author last name + year e.g. Smith2023" },
+        authors: { type: "STRING", description: "Authors string e.g. Smith et al." },
+        year: { type: "STRING" },
+        title: { type: "STRING" },
+        population: {
+          type: "OBJECT",
+          properties: {
+            sample_size: { type: "STRING" },
+            mean_age: { type: "STRING" },
+            inclusion_criteria: { type: "STRING" },
+          }
+        },
+        intervention: {
+          type: "OBJECT",
+          properties: {
+            procedure: { type: "STRING" },
+            timing_hours: { type: "STRING" },
+            technique: { type: "STRING" }
+          }
+        },
+        outcomes: {
+          type: "OBJECT",
+          properties: {
+            mortality: { type: "STRING" },
+            mRS_favorable: { type: "STRING" },
+            complications: { type: "STRING" },
+            length_of_stay: { type: "STRING" }
+          }
+        },
+        study_design: { type: "STRING" },
+      }
+    };
+
+    const QUICK_PROMPTS = [
+      "Summarize key findings",
+      "Assess risk of bias",
+      "List exclusion criteria",
+      "Describe the intervention"
+    ];
+
+    // --- GLOBAL UTILS ---
+    const cleanExtractedText = (text) => {
+      if (!text) return "";
+      return text.replace(/(\w)-\n(\w)/g, '$1$2').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    };
+
+    /**
+     * Convert PDF coordinates to canvas pixel coordinates
+     * PDF coordinates: origin at bottom-left, y increases upward
+     * Canvas coordinates: origin at top-left, y increases downward
+     */
+    const pdfToCanvasCoords = (pdfX, pdfY, pdfWidth, pdfHeight, viewport) => {
+      // Apply viewport transformation
+      const [a, b, c, d, e, f] = viewport.transform;
+
+      // PDF coords to canvas coords using transformation matrix
+      // For standard viewport: x' = scale * x, y' = height - (scale * y)
+      const canvasX = pdfX * viewport.scale;
+      const canvasY = viewport.height - (pdfY * viewport.scale);
+      const canvasWidth = pdfWidth * viewport.scale;
+      const canvasHeight = pdfHeight * viewport.scale;
+
+      return {
+        left: canvasX,
+        top: canvasY - canvasHeight, // Adjust for height since y is bottom of rect in PDF
+        width: canvasWidth,
+        height: canvasHeight
+      };
+    };
+
+    /**
+     * Convert citation highlight from PDF space to canvas space
+     */
+    const convertCitationHighlight = (citation, viewport) => {
+      return {
+        ...citation,
+        canvasRect: pdfToCanvasCoords(
+          citation.x,
+          citation.y,
+          citation.width,
+          citation.height,
+          viewport
+        )
+      };
+    };
+
+    /**
+     * Call Claude API with native citations enabled via Firebase Callable Function
+     * Uses httpsCallable for automatic auth handling and type-safe serialization
+     */
+    const getFunctions = () => {
+      // Get Firebase Functions instance (uses default region us-central1)
+      return firebase.functions();
+    };
+
+    const callClaudeWithCitations = async (pdfText, positions = null, extractionPrompt = null) => {
+      try {
+        const functions = getFunctions();
+        const extractCitations = functions.httpsCallable('extractCitations');
+
+        // Call the callable function - auth token automatically included
+        const result = await extractCitations({
+          pdfText,
+          positions,
+          extractionPrompt
+        });
+
+        return result.data; // Callable functions return {data: ...}
+      } catch (error) {
+        // Firebase callable errors have code and message
+        console.warn('Citation API error:', error.code, error.message);
+        // Return null to allow fallback to Gemini
+        return null;
+      }
+    };
+
+    /**
+     * Extract text with positions from PDF pages
+     * Returns array of position objects for citation mapping
+     */
+    const extractPdfPositions = async (pdfDoc) => {
+      const positions = [];
+      let globalCharIndex = 0;
+
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        const page = await pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+
+        for (const item of textContent.items) {
+          if (!item.str) continue;
+
+          const text = item.str;
+          const startChar = globalCharIndex;
+          const endChar = globalCharIndex + text.length;
+
+          positions.push({
+            text,
+            startChar,
+            endChar,
+            x: item.transform[4],
+            y: item.transform[5],
+            width: item.width || 0,
+            height: item.height || 10,
+            page: pageNum,
+          });
+
+          globalCharIndex = endChar + 1; // +1 for space separator
+        }
+
+        globalCharIndex += 2; // Page separator
+      }
+
+      return positions;
+    };
+
+    const callGemini = async (prompt, schema = null) => {
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+      };
+
+      if (schema) {
+        payload.generationConfig = { responseMimeType: "application/json", responseSchema: schema };
+      }
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error("API Error");
+      const result = await response.json();
+      return result.candidates?.[0]?.content?.parts?.[0]?.text;
+    };
+
+    // --- COMPONENTS ---
+
+    function App() {
+      // PDF State
+      const [pdfFile, setPdfFile] = useState(null);  // Filename string
+      const [pdfFileObject, setPdfFileObject] = useState(null);  // Actual File object for Cloud Functions
+      const [pdfDoc, setPdfDoc] = useState(null);
+      const [pageNum, setPageNum] = useState(1);
+      const [numPages, setNumPages] = useState(0);
+      const [pageOneText, setPageOneText] = useState('');
+      const [availablePDFs, setAvailablePDFs] = useState([]);
+      const [selectedPDFDropdown, setSelectedPDFDropdown] = useState('');
+
+      // Extraction State
+      const [highlights, setHighlights] = useState({}); // Changed to object: { [pdfFilename]: [highlights] }
+      const [currentField, setCurrentField] = useState('');
+      const [selectionMode, setSelectionMode] = useState(false);
+      const [aiFilledFields, setAiFilledFields] = useState(new Set());
+
+      // Citation State (from Claude Native Citations)
+      const [citations, setCitations] = useState([]);
+      const [activeCitation, setActiveCitation] = useState(null);
+      const [citationHighlights, setCitationHighlights] = useState([]);
+
+      // Firebase State
+      const [user, setUser] = useState(null);
+      const [saving, setSaving] = useState(false);
+
+      const [extractedData, setExtractedData] = useState({
+        study_id: '', authors: '', year: '', title: '',
+        population: { sample_size: '', mean_age: '', diagnosis: 'Space-occupying cerebellar infarction', inclusion_criteria: '' },
+        intervention: { procedure: '', timing_hours: '', technique: '', additional_details: '' },
+        comparator: '',
+        outcomes: { mortality: '', mRS_favorable: '', complications: '', length_of_stay: '' },
+        timing: { follow_up_duration: '' },
+        study_design: '', newcastle_ottawa_score: ''
+      });
+
+      // UI State
+      const [toast, setToast] = useState(null);
+      const [isLoading, setIsLoading] = useState(false);
+      const [activeTab, setActiveTab] = useState('extract'); // 'extract', 'tables', 'figures', or 'chat'
+      const [chatMessages, setChatMessages] = useState([]); // Array of {role, text, citations?}
+      const [chatSessionId, setChatSessionId] = useState(null); // Genkit session ID for RAG chat
+      const [chatCitations, setChatCitations] = useState(null); // Firebase AI compatible citations
+      const [extractedTables, setExtractedTables] = useState([]);
+      const [extractedFigures, setExtractedFigures] = useState([]);
+
+      // Paper Library State
+      const [libraryPapers, setLibraryPapers] = useState([]);
+      const [uploadProgress, setUploadProgress] = useState(null);
+      const [libraryLoading, setLibraryLoading] = useState(false);
+      const [showLibraryDropdown, setShowLibraryDropdown] = useState(false);
+      const libraryDropdownRef = useRef(null);
+
+      // QuickCritique Validation State
+      const [validationErrors, setValidationErrors] = useState([]);
+      const [validationWarnings, setValidationWarnings] = useState([]);
+      const [isValidating, setIsValidating] = useState(false);
+      const [lastValidationTime, setLastValidationTime] = useState(null);
+      const validationTimeoutRef = React.useRef(null);
+
+      const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      // --- QUICKCRITIQUE VALIDATION ---
+      // Calls the Genkit quickCritique flow for real-time validation
+      // Uses direct endpoint format (Genkit Express server on port 3400)
+      const runQuickCritique = async (dataToValidate) => {
+        try {
+          // Genkit Express server runs on port 3400 with direct flow endpoints
+          const GENKIT_SERVER_URL = 'http://localhost:3400';
+
+          const res = await fetch(`${GENKIT_SERVER_URL}/quickCritique`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // Genkit Express expects input wrapped in {data: ...}
+            body: JSON.stringify({ data: { extractedData: dataToValidate } })
+          });
+
+          if (!res.ok) {
+            console.warn('QuickCritique: Server returned', res.status);
+            return null;
+          }
+
+          // Genkit Express returns output wrapped in {result: ...}
+          const response = await res.json();
+          return response.result;
+        } catch (error) {
+          console.error('QuickCritique error:', error);
+          console.warn('QuickCritique: Genkit server not available. Start with: npm run genkit serve 3400');
+          return null;
+        }
+      };
+
+      // Debounced validation - runs 1 second after user stops typing
+      const triggerValidation = React.useCallback((data) => {
+        // Clear any pending validation
+        if (validationTimeoutRef.current) {
+          clearTimeout(validationTimeoutRef.current);
+        }
+
+        // Schedule new validation
+        validationTimeoutRef.current = setTimeout(async () => {
+          setIsValidating(true);
+          try {
+            const result = await runQuickCritique(data);
+            if (result) {
+              setValidationErrors(result.errors || []);
+              setValidationWarnings(result.warnings || []);
+              setLastValidationTime(new Date().toLocaleTimeString());
+
+              // Show toast for critical errors
+              if (result.errors && result.errors.length > 0) {
+                showToast(`⚠️ ${result.errors.length} validation issue(s) found`, 'error');
+              }
+            }
+          } catch (e) {
+            console.error('Validation failed:', e);
+          } finally {
+            setIsValidating(false);
+          }
+        }, 1000); // 1 second debounce
+      }, []);
+
+      // --- FIREBASE AUTH ---
+      const signInWithGoogle = async () => {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        try {
+          await auth.signInWithPopup(provider);
+          analytics.logEvent('login', { method: 'google' });
+          showToast("Signed in successfully!");
+        } catch (error) {
+          console.error("Auth Error:", error);
+          showToast("Sign in failed", "error");
+        }
+      };
+
+      const signOut = () => {
+        auth.signOut();
+        showToast("Signed out");
+      };
+
+      // Check if running in emulator/localhost mode
+      const isEmulatorMode = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      useEffect(() => {
+        if (!auth) return;
+
+        // In emulator mode, bypass auth entirely for E2E testing
+        if (isEmulatorMode) {
+          console.log('🧪 Emulator mode: bypassing auth for E2E testing');
+          setUser({ uid: 'test-user-emulator', isAnonymous: true, email: 'test@localhost' });
+          return;
+        }
+
+        const unsubscribe = auth.onAuthStateChanged(user => {
+          setUser(user);
+        });
+        return unsubscribe;
+      }, []);
+
+      // Load available PDFs from pdfs.json
+      useEffect(() => {
+        fetch('pdf/pdfs.json')
+          .then(res => res.json())
+          .then(data => setAvailablePDFs(data.pdfs || []))
+          .catch(err => console.error('Failed to load PDFs:', err));
+      }, []);
+
+      // Load papers from Firebase Storage/Firestore library
+      const loadLibraryPapers = async () => {
+        setLibraryLoading(true);
+        try {
+          const papers = await getPapers();
+          setLibraryPapers(papers);
+        } catch (err) {
+          console.error('Failed to load library papers:', err);
+        } finally {
+          setLibraryLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        loadLibraryPapers();
+      }, []);
+
+      // Upload paper to Firebase Storage
+      const handleLibraryUpload = async (file) => {
+        if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+          showToast('Please select a PDF file', 'error');
+          return;
+        }
+
+        setUploadProgress(0);
+        try {
+          const result = await uploadPaper(file, {
+            onProgress: (progress) => setUploadProgress(progress),
+            metadata: {
+              originalFileName: file.name,
+              uploadSource: 'web_ui',
+            }
+          });
+
+          showToast(`Uploaded: ${result.fileName}`);
+          setUploadProgress(null);
+          loadLibraryPapers(); // Refresh list
+        } catch (err) {
+          console.error('Upload failed:', err);
+          showToast('Upload failed: ' + err.message, 'error');
+          setUploadProgress(null);
+        }
+      };
+
+      // Load paper from library into viewer
+      const handleLoadFromLibrary = async (paper) => {
+        setShowLibraryDropdown(false); // Close dropdown
+        setIsLoading(true);
+        try {
+          // Download PDF content
+          const arrayBuffer = await downloadPaperContent(paper.downloadURL);
+          const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+          const file = new File([blob], paper.fileName, { type: 'application/pdf' });
+
+          setPdfFile(file.name);
+          setPdfFileObject(file);
+          setPdfDoc(null);
+
+          // Reset Genkit chat session when loading a new PDF
+          setChatSessionId(null);
+          setChatCitations(null);
+
+          // Use pre-extracted text from Firestore if available
+          const hasExtractedText = paper.status === 'processed' && paper.extractedText;
+          if (hasExtractedText) {
+            setChatMessages([{
+              role: 'system',
+              text: `📚 Loaded "${paper.fileName}" from library (${paper.pageCount || '?'} pages, pre-processed). RAG chat ready!`
+            }]);
+            // Use first 10k chars for chat context (pageOneText is used in chat)
+            setPageOneText(paper.extractedText.substring(0, 10000));
+          } else {
+            setChatMessages([{
+              role: 'system',
+              text: `📄 Loaded "${paper.fileName}" from library. Chat with the paper using Genkit RAG.`
+            }]);
+          }
+
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+          setPdfDoc(pdf);
+          setNumPages(pdf.numPages);
+          setPageNum(1);
+
+          // If no pre-extracted text, extract from page 1 using PDF.js
+          if (!hasExtractedText) {
+            try {
+              const page = await pdf.getPage(1);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map(item => item.str).join(' ');
+              setPageOneText(pageText);
+            } catch (err) { console.error("Text extraction warning", err); }
+          }
+
+          showToast(`Loaded: ${paper.fileName}${hasExtractedText ? ' (processed)' : ''}`);
+          setActiveTab('extract'); // Switch to extraction tab
+        } catch (err) {
+          console.error('Failed to load paper:', err);
+          showToast('Failed to load paper: ' + err.message, 'error');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // Delete paper from library
+      const handleDeletePaper = async (paperId, fileName) => {
+        if (!confirm(`Delete "${fileName}" from library?`)) return;
+
+        try {
+          await deletePaper(paperId);
+          showToast(`Deleted: ${fileName}`);
+          loadLibraryPapers(); // Refresh list
+        } catch (err) {
+          console.error('Delete failed:', err);
+          showToast('Delete failed: ' + err.message, 'error');
+        }
+      };
+
+      // Process paper (extract text)
+      const handleProcessPaper = async (paperId) => {
+        try {
+          showToast('Processing paper...', 'info');
+          await processPaper(paperId);
+          showToast('Paper processed successfully!');
+          loadLibraryPapers(); // Refresh list
+        } catch (err) {
+          console.error('Processing failed:', err);
+          showToast('Processing failed: ' + err.message, 'error');
+        }
+      };
+
+      // --- FIREBASE SYNC ---
+      // 1. Load initial data
+      useEffect(() => {
+        if (!user || !db) return;
+        const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('data').doc('current_extraction');
+
+        // Initial Load
+        docRef.get().then(doc => {
+          if (doc.exists) {
+            const data = doc.data();
+            if (data.extractedData) {
+              setExtractedData(data.extractedData);
+              setAiFilledFields(new Set(data.aiFilledFields || []));
+              setHighlights(data.highlights || {}); // Load per-PDF highlights object
+              showToast("Cloud data loaded");
+            }
+          }
+        }).catch(console.error);
+
+        return () => { };
+      }, [user]);
+
+      // 2. Auto-save on change (Debounced)
+      useEffect(() => {
+        if (!user || !db) return;
+        const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('data').doc('current_extraction');
+
+        setSaving(true);
+        const handler = setTimeout(() => {
+          docRef.set({
+            extractedData,
+            highlights,
+            aiFilledFields: Array.from(aiFilledFields),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }).then(() => {
+            setSaving(false);
+          }).catch(err => {
+            console.error("Save failed", err);
+            setSaving(false);
+          });
+        }, 1000);
+
+        return () => clearTimeout(handler);
+      }, [extractedData, highlights, user, aiFilledFields]);
+
+      // 3. Document Size Monitoring (warn at 80% of 1MB Firestore limit)
+      useEffect(() => {
+        const documentData = {
+          extractedData,
+          highlights,
+          aiFilledFields: Array.from(aiFilledFields)
+        };
+        const sizeEstimate = new Blob([JSON.stringify(documentData)]).size;
+        const sizeKB = Math.round(sizeEstimate / 1024);
+        const sizeMB = (sizeEstimate / (1024 * 1024)).toFixed(2);
+
+        // Log size for debugging
+        console.log(`Firestore document size: ${sizeKB} KB (${sizeMB} MB)`);
+
+        // Warn at 80% of 1MB limit (819,200 bytes)
+        if (sizeEstimate > 800_000) {
+          const pdfCount = Object.keys(highlights).length;
+          const totalHighlights = Object.values(highlights).reduce((sum, arr) => sum + arr.length, 0);
+          console.warn(`⚠️ Document size: ${sizeKB} KB - approaching 1MB Firestore limit`);
+          console.warn(`   PDFs with highlights: ${pdfCount}, Total highlights: ${totalHighlights}`);
+          showToast(`⚠️ Storage: ${sizeKB} KB / 1024 KB - Consider archiving old PDFs`, 'warning');
+        }
+      }, [extractedData, highlights, aiFilledFields]);
+
+
+      const handleFileUpload = async (file) => {
+        if (!file) return;
+        setIsLoading(true);
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const arrayBuffer = e.target.result;
+            setPdfFile(file.name);
+            setPdfFileObject(file);  // Store actual File object for Cloud Functions
+            setPdfDoc(null);
+            // Reset Genkit chat session when loading a new PDF
+            setChatSessionId(null);
+            setChatCitations(null);
+            setChatMessages([{ role: 'system', text: '📄 Document loaded. Chat with the paper using Genkit RAG.' }]);
+
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdf = await loadingTask.promise;
+            setPdfDoc(pdf);
+            setNumPages(pdf.numPages);
+            setPageNum(1);
+
+            try {
+              const page = await pdf.getPage(1);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map(item => item.str).join(' ');
+              setPageOneText(pageText);
+            } catch (err) { console.error("Text extraction warning", err); }
+
+            showToast("PDF loaded successfully");
+            analytics.logEvent('pdf_uploaded', { file_name: file.name, num_pages: pdf.numPages });
+          } catch (error) {
+            showToast("Error loading PDF", 'error');
+            console.error(error);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      };
+
+      const handlePDFDropdownChange = async (filename) => {
+        if (!filename) return;
+        setSelectedPDFDropdown(filename);
+        setIsLoading(true);
+
+        try {
+          const response = await fetch(`pdf/${filename}`);
+          const arrayBuffer = await response.arrayBuffer();
+          const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+          const file = new File([blob], filename, { type: 'application/pdf' });
+
+          setPdfFile(file.name);
+          setPdfFileObject(file);  // Store actual File object for Cloud Functions
+          setPdfDoc(null);
+          // Reset Genkit chat session when loading a new PDF
+          setChatSessionId(null);
+          setChatCitations(null);
+          setChatMessages([{ role: 'system', text: '📚 Document loaded from library. Chat with the paper using Genkit RAG.' }]);
+
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+          setPdfDoc(pdf);
+          setNumPages(pdf.numPages);
+          setPageNum(1);
+
+          try {
+            const page = await pdf.getPage(1);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            setPageOneText(pageText);
+          } catch (err) { console.error("Text extraction warning", err); }
+
+          showToast(`${filename} loaded successfully`);
+          analytics.logEvent('pdf_loaded_from_library', { file_name: filename, num_pages: pdf.numPages });
+        } catch (error) {
+          showToast("Error loading PDF from library", 'error');
+          console.error(error);
+          setSelectedPDFDropdown('');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      const updateField = (path, value, isAi = false) => {
+        const keys = path.split('.');
+        setExtractedData(prev => {
+          const next = JSON.parse(JSON.stringify(prev));
+          let current = next;
+          for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
+          current[keys[keys.length - 1]] = value;
+
+          // Trigger debounced validation after state update
+          triggerValidation(next);
+
+          return next;
+        });
+
+        if (isAi) {
+          setAiFilledFields(prev => new Set(prev).add(path));
+        } else {
+          const newSet = new Set(aiFilledFields);
+          newSet.delete(path);
+          setAiFilledFields(newSet);
+        }
+      };
+
+      // --- FEATURE 0: CLAUDE CITATION EXTRACTION ---
+      const handleClaudeCitationExtract = async () => {
+        if (!pdfDoc) return showToast("No PDF loaded", "error");
+        setIsLoading(true);
+
+        try {
+          // Extract full text with positions
+          const positions = await extractPdfPositions(pdfDoc);
+          const fullText = positions.map(p => p.text).join(' ');
+
+          showToast("Extracting with Claude citations...");
+
+          const result = await callClaudeWithCitations(fullText, positions);
+
+          if (result && result.success) {
+            // Set citations for display
+            setCitations(result.citations || []);
+            setCitationHighlights(result.citations || []);
+
+            showToast(`✨ Found ${result.citations?.length || 0} verified citations!`);
+            analytics.logEvent('claude_citation_extraction', { citationCount: result.citations?.length || 0 });
+          } else {
+            showToast("Citation extraction unavailable, using Gemini fallback", "error");
+            // Fall back to Gemini
+            await handleAiAutofill();
+          }
+        } catch (e) {
+          console.error('Citation extraction error:', e);
+          showToast("Citation extraction failed", "error");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // --- FEATURE 1: AUTO-FILL ENTIRE FORM ---
+      const handleAiAutofill = async () => {
+        if (!pageOneText) return showToast("No text available from abstract", "error");
+        setIsLoading(true);
+
+        const systemPrompt = `You are an expert systematic reviewer. Extract data from this medical study abstract into the exact JSON structure provided. 
+                              Be precise. If data is missing, use empty strings. 
+                              Return ONLY valid JSON. 
+                              
+                              Abstract: ${pageOneText}`;
+
+        try {
+          const jsonText = await callGemini(systemPrompt, GEMINI_SCHEMA);
+          if (!jsonText) throw new Error("No data returned");
+
+          const aiData = JSON.parse(jsonText);
+          const newAiFields = new Set(aiFilledFields);
+
+          setExtractedData(prev => {
+            const next = JSON.parse(JSON.stringify(prev));
+
+            const safeUpdate = (obj, targetObj, prefix) => {
+              Object.keys(obj).forEach(k => {
+                if (typeof obj[k] === 'object' && obj[k] !== null) {
+                  safeUpdate(obj[k], targetObj[k], prefix ? `${prefix}.${k}` : k);
+                } else if (obj[k] && targetObj.hasOwnProperty(k)) {
+                  targetObj[k] = obj[k];
+                  newAiFields.add(prefix ? `${prefix}.${k}` : k);
+                }
+              });
+            }
+
+            // Map specific top level fields manually to be safe
+            if (aiData.study_id) { next.study_id = aiData.study_id; newAiFields.add('study_id'); }
+            if (aiData.authors) { next.authors = aiData.authors; newAiFields.add('authors'); }
+            if (aiData.year) { next.year = aiData.year; newAiFields.add('year'); }
+            if (aiData.title) { next.title = aiData.title; newAiFields.add('title'); }
+            if (aiData.study_design) { next.study_design = aiData.study_design; newAiFields.add('study_design'); }
+
+            // Map nested
+            if (aiData.population) safeUpdate(aiData.population, next.population, 'population');
+            if (aiData.intervention) safeUpdate(aiData.intervention, next.intervention, 'intervention');
+            if (aiData.outcomes) safeUpdate(aiData.outcomes, next.outcomes, 'outcomes');
+
+            return next;
+          });
+
+          setAiFilledFields(newAiFields);
+          showToast("✨ Data extracted from abstract!");
+          analytics.logEvent('ai_extraction_completed');
+        } catch (e) {
+          console.error(e);
+          showToast("AI Extraction failed", "error");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // --- FEATURE 2: SMART FIELD SUGGEST ---
+      const handleSmartSuggest = async (fieldLabel, path) => {
+        if (!pageOneText) return showToast("No text available", "error");
+
+        const prompt = `Context: ${pageOneText}
+          
+          Task: Identify and extract the "${fieldLabel}" from the medical study abstract above.
+          Return ONLY the extracted value as a plain text string. Do not include label names or markdown. 
+          If not found, return "Not found".`;
+
+        try {
+          const result = await callGemini(prompt);
+          if (result && !result.toLowerCase().includes("not found")) {
+            updateField(path, result.trim(), true);
+            showToast(`✨ Found ${fieldLabel}`);
+          } else {
+            showToast(`Could not find ${fieldLabel}`, "error");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Suggestion failed", "error");
+        }
+      };
+
+      // --- FEATURE 3: CHAT ASSISTANT (with Genkit RAG + Citations) ---
+      const [isChatLoading, setIsChatLoading] = useState(false);
+
+      const handleSendMessage = async (text) => {
+        if (!text.trim()) return;
+
+        const newMessage = { role: 'user', text };
+        setChatMessages(prev => [...prev, newMessage]);
+
+        if (!pageOneText) {
+          setChatMessages(prev => [...prev, { role: 'assistant', text: 'Please upload a PDF with extractable text first.' }]);
+          return;
+        }
+
+        // Show typing indicator
+        setIsChatLoading(true);
+        setChatMessages(prev => [...prev, { role: 'assistant', text: '🔍 Searching paper with RAG...', isLoading: true }]);
+
+        try {
+          let sessionId = chatSessionId;
+
+          // Create a new session if we don't have one
+          if (!sessionId) {
+            console.log('Creating new Genkit chat session...');
+            const createResponse = await fetch(`${GENKIT_SERVER_URL}/createChatSession`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                data: {
+                  pdfText: pageOneText,
+                  pdfName: pdfFile || 'unknown.pdf',
+                }
+              })
+            });
+
+            if (!createResponse.ok) {
+              throw new Error(`Failed to create session: ${createResponse.status}`);
+            }
+
+            const createResult = await createResponse.json();
+            sessionId = createResult.result?.sessionId;
+            setChatSessionId(sessionId);
+            console.log('Created session:', sessionId);
+          }
+
+          // Send message to Genkit
+          const response = await fetch(`${GENKIT_SERVER_URL}/sendChatMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              data: {
+                sessionId,
+                message: text,
+              }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Chat error: ${response.status}`);
+          }
+
+          const result = await response.json();
+          const chatResult = result.result;
+
+          // Remove loading message and add response with citations
+          const assistantMessage = {
+            role: 'assistant',
+            text: chatResult?.response || 'No response received.',
+            citations: chatResult?.citations || null
+          };
+          setChatMessages(prev => prev.filter(m => !m.isLoading).concat(assistantMessage));
+
+          // Update citation panel if we have citations
+          if (chatResult?.citations) {
+            setChatCitations(chatResult.citations);
+          }
+
+        } catch (e) {
+          console.error('Chat error:', e);
+          // Fallback to direct Gemini if Genkit server is not available
+          console.log('Falling back to direct Gemini API...');
+          try {
+            const prompt = `Context (Medical study text):
+              ${pageOneText}
+
+              User Question: ${text}
+
+              Answer as a helpful medical research assistant. Keep it concise and grounded in the context provided.`;
+            const response = await callGemini(prompt);
+            // Remove loading message and add fallback response
+            setChatMessages(prev => prev.filter(m => !m.isLoading).concat({ role: 'assistant', text: response }));
+          } catch (fallbackError) {
+            // Remove loading message and add error
+            setChatMessages(prev => prev.filter(m => !m.isLoading).concat({
+              role: 'assistant',
+              text: 'Sorry, I encountered an error. Make sure the Genkit server is running: `npm run genkit serve 3400 --cors`'
+            }));
+          }
+        } finally {
+          setIsChatLoading(false);
+        }
+      };
+
+      // --- FEATURE 4: QUALITY CHECK ---
+      const handleQualityCheck = async () => {
+        if (!pageOneText) return showToast("No text available", "error");
+        setIsLoading(true);
+
+        const prompt = `Context: ${pageOneText}
+          
+          Task: Evaluate the risk of bias and quality of this study based on the abstract. 
+          1. Identify the study design (e.g. RCT, Cohort).
+          2. Estimate a Newcastle-Ottawa Score (0-9) if observational, or Jadad Score (0-5) if RCT.
+          3. Return a short 1-sentence reasoning.
+          
+          Return Format: "Score: X/9 (Reasoning...)"`;
+
+        try {
+          const result = await callGemini(prompt);
+          updateField('newcastle_ottawa_score', result);
+          showToast("✨ Quality assessed!");
+        } catch (e) {
+          showToast("Assessment failed", "error");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // --- FEATURE 5: CITATION GENERATOR ---
+      const handleGenerateCitation = async () => {
+        if (!extractedData.title && !pageOneText) return showToast("No title or text available", "error");
+        setIsLoading(true);
+
+        const context = extractedData.title ? `Title: ${extractedData.title}, Authors: ${extractedData.authors}, Year: ${extractedData.year}` : `Abstract: ${pageOneText}`;
+
+        const prompt = `Generate a citation in APA 7th format for this study based on the following info: ${context}. Return ONLY the citation string.`;
+
+        try {
+          const result = await callGemini(prompt);
+          // Just appending it to the chat for now as a useful place to show it
+          setChatMessages(prev => [...prev, { role: 'assistant', text: `📝 Generated Citation:\n${result}` }]);
+          setActiveTab('chat');
+          showToast("Citation generated in Chat!");
+        } catch (e) {
+          showToast("Citation generation failed", "error");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      const addHighlight = (rect, rawText) => {
+        if (!pdfFile) return; // Ensure we have a PDF loaded
+        const text = cleanExtractedText(rawText);
+        const highlight = {
+          id: Date.now(),
+          page: pageNum,
+          field: currentField,
+          rect: rect,
+          text: text
+        };
+        // Add highlight to current PDF's highlight array
+        setHighlights(prev => ({
+          ...prev,
+          [pdfFile]: [...(prev[pdfFile] || []), highlight]
+        }));
+
+        const dataPath = FIELD_MAP[currentField];
+        if (dataPath) {
+          const keys = dataPath.split('.');
+          let currentVal = extractedData;
+          keys.forEach(k => currentVal = currentVal[k]);
+          const newValue = currentVal ? `${currentVal}; ${text}` : text;
+          updateField(dataPath, newValue);
+          showToast(`Captured: ${currentField}`);
+        }
+        setSelectionMode(false);
+      };
+
+      const clearHighlightsForPDF = () => {
+        if (!pdfFile) {
+          showToast('No PDF loaded', 'error');
+          return;
+        }
+        const count = (highlights[pdfFile] || []).length;
+        if (count === 0) {
+          showToast('No highlights to clear', 'info');
+          return;
+        }
+        if (!window.confirm(`Delete ${count} highlight${count !== 1 ? 's' : ''} for "${pdfFile}"?\n\nThis action cannot be undone.`)) {
+          return;
+        }
+        setHighlights(prev => {
+          const updated = { ...prev };
+          delete updated[pdfFile];
+          return updated;
+        });
+        showToast(`Cleared ${count} highlight${count !== 1 ? 's' : ''}`, 'success');
+        analytics.logEvent('highlights_cleared', { pdf_file: pdfFile, count });
+      };
+
+      const handleExport = () => {
+        const blob = new Blob([JSON.stringify(extractedData, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${extractedData.study_id || 'data'}.json`;
+        a.click();
+        analytics.logEvent('data_exported', { study_id: extractedData.study_id });
+      };
+
+      // IMPORTANT: All hooks must be called BEFORE any early returns
+      // Close library dropdown when clicking outside
+      useEffect(() => {
+        if (!user) return; // Skip if not logged in
+        const handleClickOutside = (e) => {
+          if (libraryDropdownRef.current && !libraryDropdownRef.current.contains(e.target)) {
+            setShowLibraryDropdown(false);
+          }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, [user]);
+
+      if (!user) {
+        return (
+          <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', background: '#eef2f5' }}>
+            <div style={{ padding: 40, background: 'white', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+              <h2 style={{ marginBottom: 20, color: '#2c3e50' }}>Cerebellar Extraction Tool</h2>
+              <p style={{ marginBottom: 30, color: '#7f8c8d' }}>Please sign in to access your extractions.</p>
+              <button onClick={signInWithGoogle} style={{ padding: '12px 24px', background: '#4285F4', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>
+                Sign in with Google
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="app">
+          {isLoading && <div className="loading-overlay"><div className="spinner"></div></div>}
+
+          {/* Header Bar with Library Dropdown */}
+          <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000, display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* Library Dropdown */}
+            <div ref={libraryDropdownRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => {
+                  setShowLibraryDropdown(!showLibraryDropdown);
+                  if (!showLibraryDropdown) loadLibraryPapers();
+                }}
+                style={{
+                  padding: '6px 12px',
+                  background: 'linear-gradient(135deg, #8e44ad, #9b59b6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+              >
+                <Icons.Library size={14} /> Library ({libraryPapers.length})
+                <Icons.ChevronDown size={12} style={{ transform: showLibraryDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
+
+              {showLibraryDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: 4,
+                  background: 'white',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  minWidth: 320,
+                  maxHeight: 400,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}>
+                  {/* Upload Section */}
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #eee', background: '#fafafa' }}>
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 12px',
+                      background: 'linear-gradient(135deg, #27ae60, #2ecc71)',
+                      color: 'white',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600
+                    }}>
+                      <Icons.Upload size={14} /> Upload PDF
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          handleLibraryUpload(e.target.files[0]);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {uploadProgress !== null && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ height: 4, background: '#eee', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{
+                            width: `${uploadProgress}%`,
+                            height: '100%',
+                            background: '#27ae60',
+                            transition: 'width 0.3s'
+                          }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: '#888', marginTop: 4 }}>
+                          Uploading... {Math.round(uploadProgress)}%
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Papers List */}
+                  <div style={{ overflow: 'auto', maxHeight: 300 }}>
+                    {libraryLoading ? (
+                      <div style={{ padding: 20, textAlign: 'center', color: '#888' }}>
+                        <Icons.RefreshCw size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                        <div style={{ marginTop: 8, fontSize: 12 }}>Loading...</div>
+                      </div>
+                    ) : libraryPapers.length === 0 ? (
+                      <div style={{ padding: 20, textAlign: 'center', color: '#888', fontSize: 12 }}>
+                        <Icons.Folder size={24} style={{ opacity: 0.5 }} />
+                        <div style={{ marginTop: 8 }}>No papers in library</div>
+                        <div style={{ fontSize: 10, marginTop: 4 }}>Upload PDFs to get started</div>
+                      </div>
+                    ) : (
+                      libraryPapers.map(paper => (
+                        <div
+                          key={paper.id}
+                          style={{
+                            padding: '10px 16px',
+                            borderBottom: '1px solid #f0f0f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            cursor: 'pointer',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#f8f9fa'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          {/* Status Icon */}
+                          <div style={{ flexShrink: 0 }}>
+                            {paper.status === 'processed' ? (
+                              <Icons.Check size={16} style={{ color: '#27ae60' }} />
+                            ) : paper.status === 'processing' ? (
+                              <Icons.Clock size={16} style={{ color: '#f39c12' }} />
+                            ) : paper.status === 'error' ? (
+                              <Icons.AlertCircle size={16} style={{ color: '#e74c3c' }} />
+                            ) : (
+                              <Icons.FileText size={16} style={{ color: '#95a5a6' }} />
+                            )}
+                          </div>
+
+                          {/* Paper Info */}
+                          <div style={{ flex: 1, minWidth: 0 }} onClick={() => handleLoadFromLibrary(paper)}>
+                            <div style={{
+                              fontSize: 12,
+                              fontWeight: 500,
+                              color: '#2c3e50',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}>
+                              {paper.fileName}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#95a5a6', marginTop: 2 }}>
+                              {paper.status === 'processed' && paper.pageCount ? `${paper.pageCount} pages • ` : ''}
+                              {paper.uploadedAt instanceof Date
+                                ? paper.uploadedAt.toLocaleDateString()
+                                : 'Recently uploaded'}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                            {paper.status === 'uploaded' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleProcessPaper(paper.id); }}
+                                title="Process (extract text)"
+                                style={{
+                                  padding: '4px 8px',
+                                  background: '#3498db',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: 3,
+                                  cursor: 'pointer',
+                                  fontSize: 10
+                                }}
+                              >
+                                <Icons.RefreshCw size={12} />
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeletePaper(paper.id, paper.fileName); }}
+                              title="Delete"
+                              style={{
+                                padding: '4px 8px',
+                                background: '#e74c3c',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: 3,
+                                cursor: 'pointer',
+                                fontSize: 10
+                              }}
+                            >
+                              <Icons.Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div style={{
+                    padding: '8px 16px',
+                    borderTop: '1px solid #eee',
+                    background: '#fafafa',
+                    fontSize: 10,
+                    color: '#888',
+                    display: 'flex',
+                    justifyContent: 'space-between'
+                  }}>
+                    <span>Firebase Storage</span>
+                    <button
+                      onClick={loadLibraryPapers}
+                      style={{ background: 'none', border: 'none', color: '#8e44ad', cursor: 'pointer', fontSize: 10 }}
+                    >
+                      <Icons.RefreshCw size={10} /> Refresh
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button onClick={signOut} style={{ padding: '6px 12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+              Sign Out
+            </button>
+          </div>
+
+          <PDFPanel
+            pdfFile={pdfFile}
+            pdfDoc={pdfDoc}
+            pageNum={pageNum}
+            numPages={numPages}
+            highlights={highlights}
+            currentField={currentField}
+            selectionMode={selectionMode}
+            onFileUpload={handleFileUpload}
+            onPageChange={setPageNum}
+            onFieldSelect={setCurrentField}
+            onSelectionModeToggle={setSelectionMode}
+            onAddHighlight={addHighlight}
+            onClearHighlights={clearHighlightsForPDF}
+            citationHighlights={citationHighlights}
+            activeCitation={activeCitation}
+            onCitationClick={(cit) => {
+              setActiveCitation(cit);
+              if (cit.page !== pageNum) setPageNum(cit.page);
+            }}
+            availablePDFs={availablePDFs}
+            selectedPDFDropdown={selectedPDFDropdown}
+            onPDFDropdownChange={handlePDFDropdownChange}
+          />
+
+          <div className="extraction-panel">
+            <div className="extraction-header">
+              <div className="header-title-row">
+                <h2>📋 Extraction Assistant</h2>
+                {saving ? (
+                  <span className="save-status saving"><Icons.Cloud size={12} /> Saving...</span>
+                ) : (
+                  <span className="save-status saved"><Icons.Check size={12} /> Saved</span>
+                )}
+              </div>
+              {activeTab === 'extract' && (
+                <select
+                  value={currentField}
+                  onChange={e => setCurrentField(e.target.value)}
+                  style={{
+                    padding: '6px 10px',
+                    background: 'white',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    marginBottom: '10px',
+                    width: '100%',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">Jump to Field...</option>
+                  {Object.keys(FIELD_MAP).map(fieldName => (
+                    <option key={fieldName} value={fieldName}>{fieldName}</option>
+                  ))}
+                </select>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
+                {activeTab === 'extract' && (
+                  <>
+                    <button
+                      className="btn-ai-magic"
+                      onClick={handleClaudeCitationExtract}
+                      disabled={!pdfDoc}
+                      style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+                      title="Extract with verified source citations"
+                    >
+                      <Icons.Quote size={12} /> Citations
+                    </button>
+                    <button className="btn-ai-magic" onClick={handleAiAutofill} disabled={!pageOneText}>
+                      <Icons.Wand2 size={12} /> Auto-Fill
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="panel-tabs">
+                <button className={`tab-btn ${activeTab === 'extract' ? 'active' : ''}`} onClick={() => setActiveTab('extract')}>
+                  <Icons.FileText size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Form
+                </button>
+                <button className={`tab-btn ${activeTab === 'tables' ? 'active' : ''}`} onClick={() => setActiveTab('tables')}>
+                  <Icons.Table size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Tables
+                </button>
+                <button className={`tab-btn ${activeTab === 'figures' ? 'active' : ''}`} onClick={() => setActiveTab('figures')}>
+                  <Icons.Image size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Figures
+                </button>
+                <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
+                  <Icons.MessageSquare size={14} style={{ marginRight: 4, display: 'inline', verticalAlign: 'middle' }} /> Chat
+                </button>
+              </div>
+            </div>
+
+            <div className="extraction-content">
+              {activeTab === 'extract' ? (
+                <ExtractionForm
+                  data={extractedData}
+                  highlights={highlights}
+                  pdfFile={pdfFile}
+                  currentField={currentField}
+                  aiFilledFields={aiFilledFields}
+                  onUpdate={updateField}
+                  onFieldSelect={setCurrentField}
+                  onExport={handleExport}
+                  onGoToHighlight={setPageNum}
+                  onSmartSuggest={handleSmartSuggest}
+                  onQualityCheck={handleQualityCheck}
+                  onGenerateCitation={handleGenerateCitation}
+                  citations={citations}
+                  activeCitation={activeCitation}
+                  onCitationSelect={(cit) => {
+                    setActiveCitation(cit);
+                    if (cit.page) setPageNum(cit.page);
+                  }}
+                  validationErrors={validationErrors}
+                  validationWarnings={validationWarnings}
+                  isValidating={isValidating}
+                  lastValidationTime={lastValidationTime}
+                />
+              ) : activeTab === 'tables' ? (
+                <TablesInterface
+                  pdfDoc={pdfDoc}
+                  pdfFile={pdfFileObject}
+                  tables={extractedTables}
+                  onTablesExtracted={setExtractedTables}
+                />
+              ) : activeTab === 'figures' ? (
+                <FiguresInterface
+                  pdfDoc={pdfDoc}
+                  pdfFile={pdfFileObject}
+                  figures={extractedFigures}
+                  onFiguresExtracted={setExtractedFigures}
+                />
+              ) : (
+                <ChatInterface
+                  messages={chatMessages}
+                  onSendMessage={handleSendMessage}
+                  hasContext={!!pageOneText}
+                />
+              )}
+            </div>
+          </div>
+
+          {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
+        </div>
+      );
+    }
+
+    // --- SUB-COMPONENTS ---
+
+    /**
+     * Citation Panel Component
+     * Displays source citations for a message (Firebase AI GroundingMetadata compatible)
+     */
+    function CitationPanel({ citations, onCitationClick }) {
+      if (!citations || !citations.inlineCitations || citations.inlineCitations.length === 0) {
+        return null;
+      }
+
+      return (
+        <div className="citation-panel" style={{ marginTop: 8 }}>
+          <div className="citation-panel-header">
+            <Icons.BookOpen size={14} />
+            <span>Sources ({citations.totalChunksRetrieved} chunks)</span>
+          </div>
+          {citations.inlineCitations.map((cite, idx) => (
+            <div
+              key={idx}
+              className="citation-card"
+              onClick={() => onCitationClick && onCitationClick(cite)}
+              title="Click to view source"
+            >
+              <div className="citation-field">{cite.id}</div>
+              <div className="citation-value">
+                {cite.pageNumber ? `Page ${cite.pageNumber}` : ''}
+                {cite.section ? ` • ${cite.section}` : ''}
+              </div>
+              <div className="citation-source">"{cite.sourceText}"</div>
+              {cite.relevanceScore && (
+                <div className="citation-meta">
+                  <span>Relevance: {Math.round(cite.relevanceScore * 100)}%</span>
+                </div>
+              )}
+            </div>
+          ))}
+          {citations.retrievalQueries && citations.retrievalQueries.length > 0 && (
+            <div style={{ padding: '8px 12px', fontSize: 10, color: '#888', borderTop: '1px solid #e8dff2' }}>
+              Queries: {citations.retrievalQueries.join(', ')}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /**
+     * Chat Interface Component
+     * Messages can include citations following Firebase AI GroundingMetadata structure
+     * @see https://firebase.google.com/docs/reference/js/ai.groundingmetadata
+     */
+    function ChatInterface({ messages, onSendMessage, hasContext, onCitationClick }) {
+      const [input, setInput] = useState('');
+      const [showCitations, setShowCitations] = useState(true);
+      const msgEndRef = useRef(null);
+
+      const send = (e) => {
+        e.preventDefault();
+        if (input.trim()) {
+          onSendMessage(input);
+          setInput('');
+        }
+      };
+
+      const handleQuickPrompt = (text) => {
+        onSendMessage(text);
+      };
+
+      useEffect(() => {
+        msgEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [messages]);
+
+      return (
+        <div className="chat-container">
+          <div className="chat-messages">
+            {messages.map((m, i) => (
+              <div key={i} className={`message ${m.role}${m.isLoading ? ' loading' : ''}`}>
+                {m.role === 'assistant' && (
+                  <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 11, color: '#8e44ad', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{m.isLoading ? '🤖 GENKIT' : 'GEMINI'}</span>
+                    {m.citations && !m.isLoading && (
+                      <button
+                        onClick={() => setShowCitations(!showCitations)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#8e44ad', opacity: 0.7 }}
+                        title={showCitations ? 'Hide sources' : 'Show sources'}
+                      >
+                        {showCitations ? '🔽 Sources' : '▶️ Sources'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div style={m.isLoading ? { display: 'flex', alignItems: 'center', gap: 8 } : {}}>
+                  {m.text}
+                  {m.isLoading && <span className="typing-dots"><span>.</span><span>.</span><span>.</span></span>}
+                </div>
+                {m.role === 'assistant' && m.citations && showCitations && (
+                  <CitationPanel citations={m.citations} onCitationClick={onCitationClick} />
+                )}
+                {m.role === 'assistant' && m.toolsUsed && m.toolsUsed.length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#7f8c8d' }}>
+                    🔧 Tools: {m.toolsUsed.join(', ')}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={msgEndRef} />
+          </div>
+
+          {hasContext && (
+            <div className="quick-prompts">
+              {QUICK_PROMPTS.map(p => (
+                <button key={p} className="prompt-pill" onClick={() => handleQuickPrompt(p)}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <form className="chat-input-area" onSubmit={send}>
+            <input
+              className="chat-input"
+              placeholder={hasContext ? "Ask about the paper..." : "Upload a PDF first..."}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              disabled={!hasContext}
+            />
+            <button type="submit" className="btn-send" disabled={!hasContext}>
+              <Icons.Send size={16} />
+            </button>
+          </form>
+        </div>
+      );
+    }
+
+    function TablesInterface({ pdfDoc, pdfFile, tables, onTablesExtracted }) {
+      const [isExtracting, setIsExtracting] = useState(false);
+      const [error, setError] = useState(null);
+      const [expandedTable, setExpandedTable] = useState(null);
+
+      const extractTables = async () => {
+        if (!pdfFile) {
+          setError('Please upload a PDF file first');
+          return;
+        }
+        setIsExtracting(true);
+        setError(null);
+
+        try {
+          // Convert PDF to base64
+          const arrayBuffer = await pdfFile.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+          );
+
+          // Call Python Cloud Function
+          const extractTablesEnhanced = firebase.functions().httpsCallable('extract_tables_enhanced');
+
+          // Use direct HTTP call since Python functions use on_request
+          const response = await fetch('http://127.0.0.1:5001/cerebellar-sdc/us-central1/extract_tables_enhanced', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_base64: base64, detect_captions: true })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            const extractedTables = result.tables.map((table, idx) => ({
+              id: idx + 1,
+              page: table.page,
+              caption: table.caption || `Table ${table.table_index + 1}`,
+              headers: table.headers,
+              rows: table.rows,
+              raw: table.raw,
+              rowCount: table.row_count,
+              colCount: table.column_count
+            }));
+            onTablesExtracted(extractedTables);
+            console.log(`✅ Extracted ${extractedTables.length} tables`);
+          } else {
+            throw new Error(result.error || 'Table extraction failed');
+          }
+        } catch (error) {
+          console.error('Table extraction error:', error);
+          setError(error.message);
+        } finally {
+          setIsExtracting(false);
+        }
+      };
+
+      return (
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>📊 Table Extraction</h3>
+            <p style={{ fontSize: '13px', color: '#7f8c8d', marginBottom: '15px' }}>
+              Extract structured tables from the PDF with automatic caption detection.
+            </p>
+            <button
+              onClick={extractTables}
+              disabled={!pdfFile || isExtracting}
+              style={{
+                padding: '10px 20px',
+                background: 'var(--primary)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: pdfFile && !isExtracting ? 'pointer' : 'not-allowed',
+                opacity: pdfFile && !isExtracting ? 1 : 0.6
+              }}
+            >
+              {isExtracting ? 'Extracting...' : 'Extract Tables'}
+            </button>
+            {error && (
+              <div style={{ marginTop: '10px', padding: '10px', background: '#ffe6e6', borderRadius: '4px', color: '#cc0000', fontSize: '13px' }}>
+                {error}
+              </div>
+            )}
+          </div>
+
+          {tables.length > 0 && (
+            <div>
+              <h4 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>Extracted Tables ({tables.length})</h4>
+              {tables.map(table => (
+                <div key={table.id} style={{
+                  padding: '15px',
+                  background: 'white',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  marginBottom: '10px'
+                }}>
+                  <div
+                    style={{ fontWeight: 600, marginBottom: '5px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    onClick={() => setExpandedTable(expandedTable === table.id ? null : table.id)}
+                  >
+                    <span>{table.caption || `Table ${table.id}`}</span>
+                    <span style={{ fontSize: '12px', color: '#7f8c8d' }}>
+                      {expandedTable === table.id ? '▼' : '▶'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: expandedTable === table.id ? '10px' : '0' }}>
+                    Page {table.page} • {table.rowCount || table.rows?.length || 0} rows × {table.colCount || table.headers?.length || 0} columns
+                  </div>
+
+                  {expandedTable === table.id && table.raw && (
+                    <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr>
+                            {(table.headers || []).map((header, idx) => (
+                              <th key={idx} style={{
+                                padding: '8px',
+                                background: 'var(--primary)',
+                                color: 'white',
+                                border: '1px solid var(--border)',
+                                textAlign: 'left'
+                              }}>
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(table.rows || []).map((row, rowIdx) => (
+                            <tr key={rowIdx}>
+                              {row.map((cell, cellIdx) => (
+                                <td key={cellIdx} style={{
+                                  padding: '8px',
+                                  border: '1px solid var(--border)',
+                                  background: rowIdx % 2 === 0 ? '#f9f9f9' : 'white'
+                                }}>
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function FiguresInterface({ pdfDoc, pdfFile, figures, onFiguresExtracted }) {
+      const [isExtracting, setIsExtracting] = useState(false);
+      const [error, setError] = useState(null);
+      const [selectedFigure, setSelectedFigure] = useState(null);
+
+      const extractFigures = async () => {
+        if (!pdfFile) {
+          setError('Please upload a PDF file first');
+          return;
+        }
+        setIsExtracting(true);
+        setError(null);
+
+        try {
+          // Convert PDF to base64
+          const arrayBuffer = await pdfFile.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+          );
+
+          // Call Python Cloud Function
+          const response = await fetch('http://127.0.0.1:5001/cerebellar-sdc/us-central1/extract_figures_enhanced', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_base64: base64, min_size: 50, dpi: 150 })
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            const extractedFigures = result.figures.map((figure, idx) => ({
+              id: idx + 1,
+              page: figure.page,
+              caption: figure.caption || `Figure ${figure.figure_index + 1}`,
+              imageBase64: figure.image_base64,
+              width: figure.width,
+              height: figure.height,
+              format: figure.format,
+              bbox: figure.bbox
+            }));
+            onFiguresExtracted(extractedFigures);
+            console.log(`✅ Extracted ${extractedFigures.length} figures`);
+          } else {
+            throw new Error(result.error || 'Figure extraction failed');
+          }
+        } catch (error) {
+          console.error('Figure extraction error:', error);
+          setError(error.message);
+        } finally {
+          setIsExtracting(false);
+        }
+      };
+
+      return (
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>🖼️ Figure Extraction</h3>
+            <p style={{ fontSize: '13px', color: '#7f8c8d', marginBottom: '15px' }}>
+              Extract figures, images, and diagrams from the PDF with automatic caption detection.
+            </p>
+            <button
+              onClick={extractFigures}
+              disabled={!pdfFile || isExtracting}
+              style={{
+                padding: '10px 20px',
+                background: 'var(--primary)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: pdfFile && !isExtracting ? 'pointer' : 'not-allowed',
+                opacity: pdfFile && !isExtracting ? 1 : 0.6
+              }}
+            >
+              {isExtracting ? 'Extracting...' : 'Extract Figures'}
+            </button>
+            {error && (
+              <div style={{ marginTop: '10px', padding: '10px', background: '#ffe6e6', borderRadius: '4px', color: '#cc0000', fontSize: '13px' }}>
+                {error}
+              </div>
+            )}
+          </div>
+
+          {figures.length > 0 && (
+            <div>
+              <h4 style={{ marginBottom: '10px', color: 'var(--secondary)' }}>Extracted Figures ({figures.length})</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
+                {figures.map(figure => (
+                  <div key={figure.id} style={{
+                    padding: '10px',
+                    background: 'white',
+                    border: selectedFigure === figure.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setSelectedFigure(selectedFigure === figure.id ? null : figure.id)}
+                  >
+                    {figure.imageBase64 && (
+                      <img
+                        src={`data:image/png;base64,${figure.imageBase64}`}
+                        alt={figure.caption}
+                        style={{
+                          width: '100%',
+                          height: '120px',
+                          objectFit: 'contain',
+                          background: '#f5f5f5',
+                          borderRadius: '4px',
+                          marginBottom: '8px'
+                        }}
+                      />
+                    )}
+                    <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {figure.caption || `Figure ${figure.id}`}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#7f8c8d' }}>
+                      Page {figure.page} • {figure.width}×{figure.height}px
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {selectedFigure && (
+                <div style={{
+                  marginTop: '20px',
+                  padding: '15px',
+                  background: 'white',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px'
+                }}>
+                  <h4 style={{ marginBottom: '10px' }}>Figure Details</h4>
+                  {(() => {
+                    const figure = figures.find(f => f.id === selectedFigure);
+                    if (!figure) return null;
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', gap: '20px' }}>
+                          <div style={{ flex: '0 0 300px' }}>
+                            {figure.imageBase64 && (
+                              <img
+                                src={`data:image/png;base64,${figure.imageBase64}`}
+                                alt={figure.caption}
+                                style={{
+                                  width: '100%',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: '4px'
+                                }}
+                              />
+                            )}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <p><strong>Caption:</strong> {figure.caption || 'No caption detected'}</p>
+                            <p><strong>Page:</strong> {figure.page}</p>
+                            <p><strong>Dimensions:</strong> {figure.width} × {figure.height} pixels</p>
+                            <p><strong>Format:</strong> {figure.format || 'Unknown'}</p>
+                            {figure.bbox && (
+                              <p><strong>Bounding Box:</strong> [{figure.bbox.map(v => v.toFixed(1)).join(', ')}]</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ExtractionForm({ data, highlights, pdfFile, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect, validationErrors = [], validationWarnings = [], isValidating = false, lastValidationTime = null }) {
+      const currentPath = FIELD_MAP[currentField];
+      const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false, analysis: false, validation: false });
+      const toggle = (sec) => setCollapsed(prev => ({ ...prev, [sec]: !prev[sec] }));
+
+      const Input = ({ label, path, type = "text", rows }) => {
+        const val = path.split('.').reduce((o, i) => o[i], data);
+        const isAi = aiFilledFields.has(path);
+        const isFocused = currentPath === path;
+        const [isSuggesting, setIsSuggesting] = useState(false);
+
+        const triggerSuggest = async () => {
+          setIsSuggesting(true);
+          await onSmartSuggest(label, path);
+          setIsSuggesting(false);
+        };
+
+        return (
+          <div className="form-group">
+            <label>{label}</label>
+            <div className="input-wrapper">
+              {rows ? (
+                <textarea className={`form-control ${isAi ? 'ai-filled' : ''} ${isFocused ? 'field-focused' : ''}`}
+                  value={val} onChange={e => onUpdate(path, e.target.value)}
+                  onFocus={() => onFieldSelect(Object.keys(FIELD_MAP).find(key => FIELD_MAP[key] === path))} rows={rows} />
+              ) : (
+                <input className={`form-control ${isAi ? 'ai-filled' : ''} ${isFocused ? 'field-focused' : ''}`}
+                  type={type} value={val} onChange={e => onUpdate(path, e.target.value)}
+                  onFocus={() => onFieldSelect(Object.keys(FIELD_MAP).find(key => FIELD_MAP[key] === path))} />
+              )}
+              <div className="input-actions">
+                <button className={`btn-suggest ${isSuggesting ? 'loading' : ''}`}
+                  onClick={triggerSuggest} title="Ask Gemini to find this" type="button">
+                  <Icons.Wand2 size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <div className="extraction-form-container">
+          {/* Real-time Validation Status Panel */}
+          {(validationErrors.length > 0 || validationWarnings.length > 0 || isValidating) && (
+            <div className="validation-panel" style={{
+              marginBottom: '15px',
+              padding: '12px 15px',
+              borderRadius: '6px',
+              background: validationErrors.length > 0 ? '#fff5f5' : validationWarnings.length > 0 ? '#fffaf0' : '#f0f9ff',
+              border: `1px solid ${validationErrors.length > 0 ? '#feb2b2' : validationWarnings.length > 0 ? '#fbd38d' : '#90cdf4'}`
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: validationErrors.length + validationWarnings.length > 0 ? '8px' : '0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isValidating ? (
+                    <>
+                      <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#3182ce' }}>Validating...</span>
+                    </>
+                  ) : validationErrors.length > 0 ? (
+                    <>
+                      <span>❌</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#c53030' }}>
+                        {validationErrors.length} Validation Error{validationErrors.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  ) : validationWarnings.length > 0 ? (
+                    <>
+                      <span>⚠️</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#c05621' }}>
+                        {validationWarnings.length} Warning{validationWarnings.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>✅</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#2f855a' }}>Validated</span>
+                    </>
+                  )}
+                </div>
+                {lastValidationTime && (
+                  <span style={{ fontSize: '10px', color: '#718096' }}>Last checked: {lastValidationTime}</span>
+                )}
+              </div>
+
+              {validationErrors.length > 0 && (
+                <div style={{ marginBottom: validationWarnings.length > 0 ? '8px' : '0' }}>
+                  {validationErrors.map((err, idx) => (
+                    <div key={idx} style={{
+                      fontSize: '11px',
+                      color: '#c53030',
+                      padding: '4px 8px',
+                      background: '#fed7d7',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      • {err}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {validationWarnings.length > 0 && (
+                <div>
+                  {validationWarnings.map((warn, idx) => (
+                    <div key={idx} style={{
+                      fontSize: '11px',
+                      color: '#c05621',
+                      padding: '4px 8px',
+                      background: '#feebc8',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      • {warn}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="form-section">
+            <div className="section-header" onClick={() => toggle('meta')}>
+              <div className="section-title">🆔 Study Identification</div>
+              <Icons.ChevronDown size={16} style={{ transform: collapsed.meta ? 'rotate(-90deg)' : '' }} />
+            </div>
+            <div className={`section-body ${collapsed.meta ? 'collapsed' : ''}`}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+                <button className="btn-quality-check" onClick={onGenerateCitation} style={{ marginLeft: 0 }}>
+                  <Icons.Quote size={12} /> Generate Citation
+                </button>
+              </div>
+              <Input label="Study ID" path="study_id" />
+              <Input label="Authors" path="authors" />
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ flex: 1 }}><Input label="Year" path="year" /></div>
+                <div style={{ flex: 2 }}><Input label="Design" path="study_design" /></div>
+              </div>
+              <Input label="Title" path="title" />
+            </div>
+          </div>
+
+          <div className="form-section">
+            <div className="section-header" onClick={() => toggle('pop')}>
+              <div className="section-title">👥 Population</div>
+            </div>
+            <div className={`section-body ${collapsed.pop ? 'collapsed' : ''}`}>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ flex: 1 }}><Input label="Sample Size" path="population.sample_size" /></div>
+                <div style={{ flex: 1 }}><Input label="Mean Age" path="population.mean_age" /></div>
+              </div>
+              <Input label="Inclusion Criteria" path="population.inclusion_criteria" rows={3} />
+            </div>
+          </div>
+
+          <div className="form-section">
+            <div className="section-header" onClick={() => toggle('int')}>
+              <div className="section-title">💉 Intervention</div>
+            </div>
+            <div className={`section-body ${collapsed.int ? 'collapsed' : ''}`}>
+              <Input label="Procedure" path="intervention.procedure" />
+              <Input label="Timing (Hours)" path="intervention.timing_hours" />
+              <Input label="Technique" path="intervention.technique" rows={2} />
+              <Input label="Comparator" path="comparator" />
+            </div>
+          </div>
+
+          <div className="form-section">
+            <div className="section-header" onClick={() => toggle('out')}>
+              <div className="section-title">📉 Outcomes</div>
+            </div>
+            <div className={`section-body ${collapsed.out ? 'collapsed' : ''}`}>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ flex: 1 }}><Input label="Mortality" path="outcomes.mortality" /></div>
+                <div style={{ flex: 1 }}><Input label="Favorable Outcome" path="outcomes.mRS_favorable" /></div>
+              </div>
+              <Input label="Complications" path="outcomes.complications" rows={3} />
+              <Input label="Length of Stay" path="outcomes.length_of_stay" />
+
+              <div style={{ marginTop: 15, paddingTop: 15, borderTop: '1px dashed #eee' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#7f8c8d', textTransform: 'uppercase' }}>Quality Score</label>
+                  <button className="btn-quality-check" onClick={onQualityCheck}>
+                    <Icons.Activity size={12} /> Analyze Quality
+                  </button>
+                </div>
+                <Input label="" path="newcastle_ottawa_score" />
+              </div>
+            </div>
+          </div>
+
+          {/* Citation Provenance Panel */}
+          {citations && citations.length > 0 && (
+            <div className="citation-panel">
+              <div className="citation-panel-header" onClick={() => toggle('cit')}>
+                <span>📎 Verified Citations ({citations.length})</span>
+                <Icons.ChevronDown size={16} style={{ marginLeft: 'auto', transform: collapsed.cit ? 'rotate(-90deg)' : '' }} />
+              </div>
+              {!collapsed.cit && citations.map((cit, idx) => (
+                <div
+                  key={cit.id || idx}
+                  className={`citation-card ${activeCitation?.id === cit.id ? 'active' : ''}`}
+                  onClick={() => onCitationSelect(cit)}
+                >
+                  <div className="citation-field">{cit.field || 'Extracted Value'}</div>
+                  <div className="citation-value">{cit.value || cit.citedText?.substring(0, 60)}</div>
+                  <div className="citation-source">
+                    "{cit.sourceText || cit.citedText}"
+                  </div>
+                  <div className="citation-meta">
+                    <span>Page {cit.page}</span>
+                    <span>Chars {cit.startChar}-{cit.endChar}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(highlights[pdfFile] || []).length > 0 && (
+            <div className="annotations-container">
+              <h3 style={{ fontSize: '12px', fontWeight: 600, color: '#777', marginBottom: '10px', marginTop: '20px' }}>CAPTURED SNIPPETS</h3>
+              {(highlights[pdfFile] || []).map(h => (
+                <div key={h.id} className="annotation-card" onClick={() => onGoToHighlight(h.page)}>
+                  <strong>{h.field} (Pg {h.page})</strong>
+                  <p>{h.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Analysis Section */}
+          <div className="form-section">
+            <div className="section-header" onClick={() => toggle('analysis')}>
+              <span className="section-title">
+                <Icons.Activity size={16} style={{ marginRight: 6 }} />
+                📊 Quality Analysis
+              </span>
+              <Icons.ChevronDown size={16} style={{ transform: collapsed.analysis ? 'rotate(-90deg)' : '', transition: 'transform 0.2s' }} />
+            </div>
+            <div className={`section-body ${collapsed.analysis ? 'collapsed' : ''}`}>
+              <div style={{ padding: '10px', background: '#f8f9fa', borderRadius: '4px', marginBottom: '15px' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', color: 'var(--secondary)' }}>
+                  Extraction Quality Report
+                </h4>
+                <p style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '10px' }}>
+                  Automated quality checks using the 3-layer critique system (Layer 1: Math validators, Layer 2: Semantic logic, Layer 3: Evidence anchoring).
+                </p>
+                <button
+                  onClick={onQualityCheck}
+                  style={{
+                    padding: '8px 16px',
+                    background: 'var(--primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600
+                  }}
+                >
+                  <Icons.Activity size={12} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                  Run Quality Analysis
+                </button>
+              </div>
+
+              <div style={{ marginTop: '15px' }}>
+                <h5 style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--secondary)' }}>
+                  Completeness Check
+                </h5>
+                <div style={{ fontSize: '12px', color: '#555' }}>
+                  {[
+                    { label: 'Metadata', fields: ['study_id', 'authors', 'year', 'title'], icon: '📋' },
+                    { label: 'Population', fields: ['population.sample_size', 'population.mean_age'], icon: '👥' },
+                    { label: 'Intervention', fields: ['intervention.procedure', 'intervention.technique'], icon: '⚕️' },
+                    { label: 'Outcomes', fields: ['outcomes.mortality', 'outcomes.mRS_favorable'], icon: '📊' }
+                  ].map((section, idx) => {
+                    const completedCount = section.fields.filter(field => {
+                      const keys = field.split('.');
+                      let val = data;
+                      for (const key of keys) val = val?.[key];
+                      return val && val !== '';
+                    }).length;
+                    const total = section.fields.length;
+                    const pct = Math.round((completedCount / total) * 100);
+                    return (
+                      <div key={idx} style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{section.icon} {section.label}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '100px', height: '6px', background: '#eee', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? 'var(--success)' : 'var(--accent)' }} />
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: pct === 100 ? 'var(--success)' : '#7f8c8d' }}>
+                            {completedCount}/{total}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel-footer" style={{ marginTop: 20, padding: 0, borderTop: 'none' }}>
+            <button className="action-btn btn-export-json" onClick={onExport}>Download JSON</button>
+          </div>
+        </div>
+      );
+    }
+
+    function PDFPanel({
+      pdfFile, pdfDoc, pageNum, numPages, highlights,
+      currentField, selectionMode, onFileUpload, onPageChange,
+      onFieldSelect, onSelectionModeToggle, onAddHighlight, onClearHighlights,
+      citationHighlights, activeCitation, onCitationClick, onViewportChange,
+      availablePDFs, selectedPDFDropdown, onPDFDropdownChange
+    }) {
+      const canvasRef = useRef(null);
+      const [scale, setScale] = useState(1.2);
+      const [textContent, setTextContent] = useState(null);
+      const [viewport, setViewport] = useState(null);
+
+      useEffect(() => {
+        if (pdfDoc) renderPage();
+      }, [pdfDoc, pageNum, scale]);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!selectionMode || !canvas || !textContent) return;
+
+        let startX, startY, isDrawing = false;
+        let selectionBox = document.createElement('div');
+        selectionBox.style.cssText = 'position:absolute; border: 2px dashed #f39c12; background: rgba(243, 156, 18, 0.2); pointer-events: none; z-index: 50;';
+
+        const getCoords = (e) => {
+          const rect = canvas.getBoundingClientRect();
+          return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        };
+
+        const onDown = (e) => {
+          const { x, y } = getCoords(e);
+          startX = x; startY = y;
+          isDrawing = true;
+          selectionBox.style.left = x + 'px'; selectionBox.style.top = y + 'px';
+          canvas.parentElement.appendChild(selectionBox);
+        };
+
+        const onMove = (e) => {
+          if (!isDrawing) return;
+          const { x, y } = getCoords(e);
+          const left = Math.min(startX, x), top = Math.min(startY, y);
+          const width = Math.abs(x - startX), height = Math.abs(y - startY);
+          selectionBox.style.left = left + 'px'; selectionBox.style.top = top + 'px';
+          selectionBox.style.width = width + 'px'; selectionBox.style.height = height + 'px';
+        };
+
+        const onUp = (e) => {
+          if (!isDrawing) return;
+          isDrawing = false;
+          const { x, y } = getCoords(e);
+          selectionBox.remove();
+          const rect = {
+            left: Math.min(startX, x), top: Math.min(startY, y),
+            width: Math.abs(x - startX), height: Math.abs(y - startY)
+          };
+          if (rect.width < 5 || rect.height < 5) return;
+          onAddHighlight(rect, "Selected Text (Simulated Extraction)");
+        };
+
+        canvas.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+
+        return () => {
+          canvas.removeEventListener('mousedown', onDown);
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          if (selectionBox.parentNode) selectionBox.parentNode.removeChild(selectionBox);
+        };
+      }, [selectionMode, textContent]);
+
+      const renderPage = async () => {
+        try {
+          const page = await pdfDoc.getPage(pageNum);
+          const vp = page.getViewport({ scale });
+          setViewport(vp);
+          if (onViewportChange) onViewportChange(vp);
+
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          await page.render({ canvasContext: ctx, viewport: vp }).promise;
+          const text = await page.getTextContent();
+          setTextContent(text);
+        } catch (e) { console.error(e); }
+      };
+
+      return (
+        <div className="pdf-panel">
+          <div className="pdf-header">
+            <h2>📄 PDF Explorer</h2>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={selectedPDFDropdown}
+                onChange={e => onPDFDropdownChange(e.target.value)}
+                style={{
+                  padding: '8px 12px',
+                  background: '#f8f9fa',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  minWidth: '150px'
+                }}
+              >
+                <option value="">Select from Library</option>
+                {availablePDFs.map((pdf, idx) => {
+                  const highlightCount = (highlights[pdf.filename] || []).length;
+                  const badge = highlightCount > 0 ? ` (${highlightCount} highlights)` : '';
+                  return (
+                    <option key={idx} value={pdf.filename}>
+                      {pdf.name}{badge}
+                    </option>
+                  );
+                })}
+              </select>
+              <span style={{ color: '#999', fontSize: '12px' }}>or</span>
+              <label className="file-upload-btn">
+                Upload PDF
+                <input type="file" accept=".pdf" onChange={e => handleFileUpload(e.target.files[0])} />
+              </label>
+            </div>
+          </div>
+
+          {pdfFile && (
+            <div className="pdf-controls">
+              <button className="control-btn" onClick={() => onPageChange(Math.max(1, pageNum - 1))} disabled={pageNum <= 1}>Previous</button>
+              <span style={{ fontSize: '12px', margin: '0 10px' }}>Page {pageNum} / {numPages}</span>
+              <button className="control-btn" onClick={() => onPageChange(Math.min(numPages, pageNum + 1))} disabled={pageNum >= numPages}>Next</button>
+              <div style={{ width: '1px', height: '16px', background: '#666', margin: '0 10px' }}></div>
+              <button className="control-btn" onClick={() => setScale(s => Math.max(0.5, s - 0.2))}>-</button>
+              <span style={{ fontSize: '12px' }}>{Math.round(scale * 100)}%</span>
+              <button className="control-btn" onClick={() => setScale(s => Math.min(3, s + 0.2))}>+</button>
+            </div>
+          )}
+
+          <div className="annotation-bar">
+            <select className="field-select" value={currentField} onChange={e => onFieldSelect(e.target.value)}>
+              <option value="">-- Select Field to Extract --</option>
+              {Object.keys(FIELD_MAP).map(k => <option key={k} value={k}>{k}</option>)}
+            </select>
+
+            <button
+              className={`toggle-highlight-btn ${selectionMode ? 'active' : ''}`}
+              onClick={() => onSelectionModeToggle(!selectionMode)}
+              disabled={!currentField}
+              title={!currentField ? "Select a field first" : "Click and drag on PDF"}
+            >
+              {selectionMode ? '🖍️ Highlighting...' : 'Enable Selection'}
+            </button>
+
+            {pdfFile && (highlights[pdfFile] || []).length > 0 && (
+              <button
+                className="control-btn"
+                onClick={onClearHighlights}
+                title={`Clear ${(highlights[pdfFile] || []).length} highlight${(highlights[pdfFile] || []).length !== 1 ? 's' : ''} for this PDF`}
+                style={{ marginLeft: '8px', background: '#e74c3c', color: 'white' }}
+              >
+                🗑️ Clear Highlights ({(highlights[pdfFile] || []).length})
+              </button>
+            )}
+          </div>
+
+          <div className="pdf-viewer-container">
+            {pdfFile ? (
+              <div className="pdf-canvas-wrapper">
+                <canvas ref={canvasRef} id="pdf-canvas" style={{ cursor: selectionMode ? 'crosshair' : 'default' }} />
+                <div className="highlight-layer">
+                  {/* Manual selection highlights (yellow) with tooltips showing field name */}
+                  {(highlights[pdfFile] || []).filter(h => h.page === pageNum).map(h => (
+                    <div key={h.id} className="highlight"
+                      style={{ left: h.rect.left, top: h.rect.top, width: h.rect.width, height: h.rect.height }}
+                      title={h.field + ": " + h.text} />
+                  ))}
+
+                  {/* Claude citation highlights (purple) */}
+                  {viewport && citationHighlights && citationHighlights
+                    .filter(c => c.page === pageNum)
+                    .map((c, idx) => {
+                      const rect = pdfToCanvasCoords(c.x, c.y, c.width, c.height, viewport);
+                      const isActive = activeCitation && activeCitation.id === c.id;
+                      return (
+                        <div
+                          key={`cit-${idx}-${c.page}`}
+                          className={`citation-highlight ${isActive ? 'active' : ''}`}
+                          style={{
+                            left: rect.left,
+                            top: rect.top,
+                            width: Math.max(rect.width, 10),
+                            height: Math.max(rect.height, 12)
+                          }}
+                          title={`Citation: "${c.citedText?.substring(0, 50)}..."`}
+                          onClick={() => onCitationClick && onCitationClick(c)}
+                        />
+                      );
+                    })}
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', marginTop: '100px', opacity: 0.5, color: '#333' }}>
+                <div style={{ fontSize: '40px', marginBottom: '20px' }}>📄</div>
+                <div>Upload a PDF Document to begin</div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+
+  <!-- 🤖 Google Generative AI (Gemini) - Browser-compatible SDK -->
+  <script type="module">
+    import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai';
+
+    // ⚠️ API key visible in browser - OK for dev, not for production
+    const API_KEY = 'AIzaSyA0q3GpEymeImQKwJn3g226CYLncCJaOCc';
+
+    // Initialize the Gemini client
+    const genAI = new GoogleGenerativeAI(API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
+
+    // Example: Hello flow equivalent
+    async function helloFlow(name) {
+      try {
+        const result = await model.generateContent(`Hello Gemini, my name is ${name}`);
+        const response = await result.response;
+        const text = response.text();
+        console.log('Gemini response:', text);
+        return text;
+      } catch (error) {
+        console.error('Gemini error:', error);
+      }
+    }
+
+    // Make it globally accessible for testing
+    window.helloFlow = helloFlow;
+    window.geminiModel = model;
+
+    // Test call (uncomment to run on page load)
+    // helloFlow('Chris');
+
+    console.log('✅ Google Generative AI SDK loaded. Try: helloFlow("YourName") in console');
+  </script>
+</body>
+
+</html>

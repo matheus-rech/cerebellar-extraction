@@ -3,6 +3,28 @@ Python Cloud Functions for PDF Processing
 
 Uses pdfplumber for superior text and table extraction with layout preservation.
 Complements the Node.js Claude citation functions.
+
+SECURITY NOTES:
+---------------
+These functions use `invoker="public"` to allow unauthenticated access. This is
+intentional for this research extraction tool because:
+
+1. CORS Restrictions: All functions have CORS configured via `get_cors_origins()`
+   which limits requests to specific allowed origins (localhost ports for dev,
+   production domain for deployment).
+
+2. Read-Only Operations: These functions only extract/analyze PDF content - they
+   don't modify any persistent state or access sensitive user data.
+
+3. Input Validation: All functions validate input and handle errors gracefully.
+
+4. Rate Limiting: Firebase Cloud Functions have built-in rate limiting and
+   billing controls that prevent abuse.
+
+For production deployments with sensitive data, consider:
+- Adding Firebase Authentication and changing to `invoker="private"`
+- Implementing additional rate limiting via Firebase App Check
+- Adding request signing/API key validation
 """
 
 from firebase_functions import https_fn, options
