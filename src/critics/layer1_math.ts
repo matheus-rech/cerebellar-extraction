@@ -209,7 +209,7 @@ export function rangeSentinel(data: any): CritiqueIssue[] {
     maxScore: number
   ) => {
     if (score !== undefined) {
-      const parsedScore = parseFloat(score as string);
+      const parsedScore = typeof score === 'number' ? score : parseFloat(score);
       if (!isNaN(parsedScore) && (parsedScore < 0 || parsedScore > maxScore)) {
         issues.push({
           criticId: "rangeSentinel",
