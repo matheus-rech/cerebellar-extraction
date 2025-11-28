@@ -203,13 +203,13 @@ export function rangeSentinel(data: any): CritiqueIssue[] {
 
   // Helper function to validate NOS domain scores
   const validateDomainScore = (
-    score: any,
+    score: string | number | undefined,
     fieldName: string,
     domainLabel: string,
     maxScore: number
   ) => {
     if (score !== undefined) {
-      const parsedScore = parseFloat(score);
+      const parsedScore = parseFloat(score as string);
       if (!isNaN(parsedScore) && (parsedScore < 0 || parsedScore > maxScore)) {
         issues.push({
           criticId: "rangeSentinel",
