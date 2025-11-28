@@ -6,14 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CEREBELLAR-EXTRACT - Data Extraction Tool</title>
 
-  <!-- Firebase SDKs (Compat) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-performance-compat.js"></script>
+  <!-- Firebase SDKs (Compat for Auth/Firestore/Storage) -->
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-performance-compat.js"></script>
+
+  <!-- Firebase AI Logic - initialized via dynamic import in main script -->
 
   <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -93,7 +95,27 @@
     const perf = firebase.performance();
 
     const appId = "cerebellar-extraction";
-    const apiKey = window.__GEMINI_API_KEY__ || "YOUR_GEMINI_API_KEY"; // Gemini API key (set in config.js)
+
+    // ==========================================
+    // Firebase AI Logic Initialization
+    // ==========================================
+    // No API key needed - Firebase handles authentication automatically
+    let firebaseAIModel = null;
+    let firebaseAIReady = false;
+
+    // Initialize Firebase AI Logic using dynamic import
+    (async () => {
+      try {
+        const { getAI, getGenerativeModel, GoogleAIBackend } = await import('https://www.gstatic.com/firebasejs/11.8.0/firebase-ai.js');
+        const ai = getAI(app, { backend: new GoogleAIBackend() });
+        firebaseAIModel = getGenerativeModel(ai, { model: 'gemini-2.5-flash' });
+        firebaseAIReady = true;
+        console.log('✅ Firebase AI Logic initialized (gemini-2.5-flash) - No API key needed!');
+      } catch (error) {
+        console.error('❌ Failed to initialize Firebase AI Logic:', error);
+        console.warn('Enable Gemini API at: https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com');
+      }
+    })();
 
     // Genkit Flow Server URL (for chat with RAG + citations)
     const GENKIT_SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -293,17 +315,12 @@
           extractedText = result.data.text;
           pages = result.data.pages;
         } catch (e) {
-          // Fallback to direct HTTP call
-          const response = await fetch(
-            window.location.hostname === 'localhost'
-              ? 'http://127.0.0.1:5001/cerebellar-extraction/us-central1/extract_text_with_layout'
-              : 'https://us-central1-cerebellar-extraction.cloudfunctions.net/extract_text_with_layout',
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ pdf_base64: pdfBase64 }),
-            }
-          );
+          // Fallback to direct HTTP call using helper
+          const response = await fetch(getCloudFunctionUrl('extract_text_with_layout'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_base64: pdfBase64 }),
+          });
           const data = await response.json();
           extractedText = data.text;
           pages = data.pages;
@@ -394,6 +411,125 @@
       if (!text) return "";
       return text.replace(/(\w)-\n(\w)/g, '$1$2').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
     };
+
+    // ==========================================
+    // Python Cloud Functions URL Helper
+    // ==========================================
+    const getCloudFunctionUrl = (functionName) => {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      return isLocal
+        ? `http://127.0.0.1:5001/cerebellar-extraction/us-central1/${functionName}`
+        : `https://us-central1-cerebellar-extraction.cloudfunctions.net/${functionName}`;
+    };
+
+    /**
+     * Capture visual evidence screenshots with highlighted regions
+     * @param {ArrayBuffer} pdfBuffer - PDF content as ArrayBuffer
+     * @param {Array} highlights - Array of highlight regions [{page, text, x0, y0, x1, y1, label}]
+     * @param {Object} options - {dpi: 200, padding: 15}
+     * @returns {Promise<{screenshots: Array}>}
+     */
+    async function captureHighlights(pdfBuffer, highlights, options = {}) {
+      const base64 = btoa(
+        new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+
+      const response = await fetch(getCloudFunctionUrl('capture_highlights'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdf_base64: base64,
+          highlights,
+          dpi: options.dpi || 200,
+          padding: options.padding || 15
+        })
+      });
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Highlight capture failed');
+      }
+      return result;
+    }
+
+    /**
+     * Generate HTML report with extraction data and visual evidence
+     * @param {ArrayBuffer} pdfBuffer - PDF content as ArrayBuffer
+     * @param {Object} extractionData - Extracted data fields
+     * @param {Array} highlights - Highlight regions for screenshots
+     * @param {Object} options - {title, dpi, padding}
+     * @returns {Promise<{html: string}>}
+     */
+    async function generateHtmlReport(pdfBuffer, extractionData, highlights = [], options = {}) {
+      const base64 = btoa(
+        new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+
+      const response = await fetch(getCloudFunctionUrl('generate_html_report'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdf_base64: base64,
+          extraction_data: extractionData,
+          highlights,
+          title: options.title || 'Cerebellar Extraction Report',
+          dpi: options.dpi || 150,
+          padding: options.padding || 20
+        })
+      });
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Report generation failed');
+      }
+      return result;
+    }
+
+    /**
+     * Detect document sections (Abstract, Methods, Results, etc.)
+     * @param {ArrayBuffer} pdfBuffer - PDF content as ArrayBuffer
+     * @returns {Promise<{sections: Array}>}
+     */
+    async function detectSections(pdfBuffer) {
+      const base64 = btoa(
+        new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+
+      const response = await fetch(getCloudFunctionUrl('detect_sections'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdf_base64: base64 })
+      });
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Section detection failed');
+      }
+      return result;
+    }
+
+    /**
+     * Extract text with character-level positions for citation mapping
+     * @param {ArrayBuffer} pdfBuffer - PDF content as ArrayBuffer
+     * @returns {Promise<{text: string, positions: Array}>}
+     */
+    async function extractTextWithPositions(pdfBuffer) {
+      const base64 = btoa(
+        new Uint8Array(pdfBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+
+      const response = await fetch(getCloudFunctionUrl('extract_text_with_positions'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdf_base64: base64 })
+      });
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Position extraction failed');
+      }
+      return result;
+    }
 
     /**
      * Convert PDF coordinates to canvas pixel coordinates
@@ -504,26 +640,223 @@
       return positions;
     };
 
+    // callGemini - Uses Firebase AI Logic (no API key needed!)
+    // Firebase handles authentication automatically via project credentials
     const callGemini = async (prompt, schema = null) => {
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`;
-
-      const payload = {
-        contents: [{ parts: [{ text: prompt }] }],
-      };
-
-      if (schema) {
-        payload.generationConfig = { responseMimeType: "application/json", responseSchema: schema };
+      // Wait for Firebase AI Logic to initialize (max 5 seconds)
+      let attempts = 0;
+      while (!firebaseAIReady && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
       }
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      if (!firebaseAIReady || !firebaseAIModel) {
+        throw new Error(
+          'Firebase AI Logic not initialized. ' +
+          'Enable Gemini API at: https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com'
+        );
+      }
 
-      if (!response.ok) throw new Error("API Error");
-      const result = await response.json();
-      return result.candidates?.[0]?.content?.parts?.[0]?.text;
+      try {
+        // Generate content using Firebase AI Logic
+        const result = await firebaseAIModel.generateContent(prompt);
+        const response = result.response;
+        const text = response.text();
+
+        // If schema was provided, try to parse as JSON
+        if (schema) {
+          // Clean markdown code blocks if present
+          let cleanText = text.trim();
+          if (cleanText.startsWith('```json')) {
+            cleanText = cleanText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+          } else if (cleanText.startsWith('```')) {
+            cleanText = cleanText.replace(/^```\n?/, '').replace(/\n?```$/, '');
+          }
+          return JSON.parse(cleanText);
+        }
+
+        return text;
+      } catch (error) {
+        console.error('Firebase AI Logic error:', error);
+        throw error;
+      }
+    };
+
+    // Converts a File object to a GenerativePart (official Firebase pattern)
+    async function fileToGenerativePart(file) {
+      const base64EncodedDataPromise = new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.readAsDataURL(file);
+      });
+      return {
+        inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
+      };
+    }
+
+    // callGeminiWithPDF - Analyze PDF directly with multimodal vision
+    // Firebase AI Logic supports native PDF analysis (up to 50MB, 1000 pages)
+    const callGeminiWithPDF = async (pdfFile, prompt, schema = null) => {
+      // Wait for Firebase AI Logic to initialize
+      let attempts = 0;
+      while (!firebaseAIReady && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+
+      if (!firebaseAIReady || !firebaseAIModel) {
+        throw new Error('Firebase AI Logic not initialized.');
+      }
+
+      try {
+        // Convert File to GenerativePart using official Firebase pattern
+        const pdfPart = await fileToGenerativePart(pdfFile);
+
+        // Generate content with PDF + prompt
+        const result = await firebaseAIModel.generateContent([prompt, pdfPart]);
+        const text = result.response.text() ?? '';
+
+        // Parse JSON if schema provided
+        if (schema) {
+          let cleanText = text.trim();
+          if (cleanText.startsWith('```json')) {
+            cleanText = cleanText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+          } else if (cleanText.startsWith('```')) {
+            cleanText = cleanText.replace(/^```\n?/, '').replace(/\n?```$/, '');
+          }
+          return JSON.parse(cleanText);
+        }
+
+        return text;
+      } catch (error) {
+        console.error('Firebase AI Logic PDF analysis error:', error);
+        throw error;
+      }
+    };
+
+    // Render PDF page to image using PDF.js canvas (for better figure/table analysis)
+    const renderPageToImage = async (pdfDoc, pageNum, scale = 2.0) => {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      // Convert to blob then to base64
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve({
+            data: reader.result.split(',')[1],
+            mimeType: 'image/png',
+            width: canvas.width,
+            height: canvas.height
+          });
+          reader.readAsDataURL(blob);
+        }, 'image/png');
+      });
+    };
+
+    // Analyze a specific PDF page as high-res image (better for charts/tables)
+    const analyzePageAsImage = async (pdfDoc, pageNum, prompt) => {
+      if (!firebaseAIReady || !firebaseAIModel) {
+        throw new Error('Firebase AI Logic not initialized.');
+      }
+
+      const imageData = await renderPageToImage(pdfDoc, pageNum);
+
+      const imagePart = {
+        inlineData: {
+          data: imageData.data,
+          mimeType: imageData.mimeType
+        }
+      };
+
+      const result = await firebaseAIModel.generateContent([prompt, imagePart]);
+      return result.response.text() ?? '';
+    };
+
+    // Figure types matching backend ExtractedFigureSchema
+    const FIGURE_TYPES = [
+      'flowchart', 'bar_chart', 'line_chart', 'kaplan_meier', 'forest_plot',
+      'ct_scan', 'mri', 'scatter_plot', 'pie_chart', 'box_plot',
+      'histogram', 'heatmap', 'diagram', 'other'
+    ];
+
+    // Extract figures/charts from specific pages using Gemini vision
+    // Note: For tables, use Mistral OCR via Genkit backend (96.12% accuracy)
+    const extractFiguresFromPages = async (pdfDoc, pageNumbers) => {
+      const results = [];
+
+      for (const pageNum of pageNumbers) {
+        console.log(`🔍 Analyzing page ${pageNum} for figures with Gemini vision...`);
+        const figurePrompt = `Analyze this medical research paper page and extract all figures, charts, and medical images.
+
+For each figure found, provide a JSON object with:
+- label: Figure number/identifier (e.g., "Figure 1", "Fig. 2A")
+- caption: Full caption text if visible
+- figureType: One of [${FIGURE_TYPES.join(', ')}]
+- extractedValues: Array of {label, value, confidence} for data points visible in charts
+- summary: Brief description of what the figure shows
+- clinicalRelevance: Relevance to cerebellar stroke or surgical outcomes if applicable
+
+Return as JSON array. If no figures found, return empty array [].`;
+
+        try {
+          const result = await analyzePageAsImage(pdfDoc, pageNum, figurePrompt);
+          let parsed;
+          try {
+            let clean = result.trim();
+            if (clean.startsWith('```json')) clean = clean.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+            if (clean.startsWith('```')) clean = clean.replace(/^```\n?/, '').replace(/\n?```$/, '');
+            parsed = JSON.parse(clean);
+          } catch {
+            parsed = { raw: result };
+          }
+          results.push({ page: pageNum, figures: parsed });
+        } catch (error) {
+          console.error(`Error analyzing page ${pageNum}:`, error);
+          results.push({ page: pageNum, error: error.message });
+        }
+      }
+
+      return results;
+    };
+
+    // Scan all pages to find which contain figures (quick detection)
+    const detectFigurePages = async (pdfDoc) => {
+      const figurePages = [];
+      const numPages = pdfDoc.numPages;
+
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        console.log(`Scanning page ${pageNum}/${numPages} for figures...`);
+        const detectPrompt = `Does this page contain any figures, charts, graphs, or medical images?
+Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1", ...]}`;
+
+        try {
+          const result = await analyzePageAsImage(pdfDoc, pageNum, detectPrompt);
+          let parsed;
+          try {
+            let clean = result.trim();
+            if (clean.startsWith('```json')) clean = clean.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+            if (clean.startsWith('```')) clean = clean.replace(/^```\n?/, '').replace(/\n?```$/, '');
+            parsed = JSON.parse(clean);
+          } catch {
+            parsed = { hasFigures: false };
+          }
+          if (parsed.hasFigures) {
+            figurePages.push({ page: pageNum, count: parsed.count || 1, types: parsed.types || [] });
+          }
+        } catch (error) {
+          console.error(`Error scanning page ${pageNum}:`, error);
+        }
+      }
+
+      return figurePages;
     };
 
     // --- COMPONENTS ---
@@ -1330,6 +1663,57 @@
         analytics.logEvent('data_exported', { study_id: extractedData.study_id });
       };
 
+      // Generate HTML Report with visual evidence
+      const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+      const handleGenerateReport = async () => {
+        if (!pdfFileObject) {
+          showToast('Please upload a PDF first', 'error');
+          return;
+        }
+
+        setIsGeneratingReport(true);
+        try {
+          // Get PDF buffer
+          const pdfBuffer = await pdfFileObject.arrayBuffer();
+
+          // Convert highlights from canvas coordinates to PDF coordinates
+          const currentHighlights = highlights[pdfFile] || [];
+          const reportHighlights = currentHighlights.map(h => ({
+            page: h.page || 1,
+            text: h.text || '',
+            x0: h.left || h.x0 || 0,
+            y0: h.top || h.y0 || 0,
+            x1: (h.left || h.x0 || 0) + (h.width || 100),
+            y1: (h.top || h.y0 || 0) + (h.height || 20),
+            label: h.field || 'Extracted Data'
+          }));
+
+          // Generate report
+          const result = await generateHtmlReport(
+            pdfBuffer,
+            extractedData,
+            reportHighlights,
+            { title: `Cerebellar Extraction: ${extractedData.study_id || 'Report'}` }
+          );
+
+          // Download HTML report
+          const blob = new Blob([result.html], { type: 'text/html' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `${extractedData.study_id || 'report'}_extraction_report.html`;
+          a.click();
+
+          showToast(`Report generated with ${result.screenshots || 0} screenshots!`, 'success');
+          analytics.logEvent('report_generated', { study_id: extractedData.study_id });
+        } catch (error) {
+          console.error('Report generation error:', error);
+          showToast(`Report generation failed: ${error.message}`, 'error');
+        } finally {
+          setIsGeneratingReport(false);
+        }
+      };
+
       // IMPORTANT: All hooks must be called BEFORE any early returns
       // Close library dropdown when clicking outside
       useEffect(() => {
@@ -1675,6 +2059,8 @@
                   onUpdate={updateField}
                   onFieldSelect={setCurrentField}
                   onExport={handleExport}
+                  onGenerateReport={handleGenerateReport}
+                  isGeneratingReport={isGeneratingReport}
                   onGoToHighlight={setPageNum}
                   onSmartSuggest={handleSmartSuggest}
                   onQualityCheck={handleQualityCheck}
@@ -1873,11 +2259,8 @@
             new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
           );
 
-          // Call Python Cloud Function
-          const extractTablesEnhanced = firebase.functions().httpsCallable('extract_tables_enhanced');
-
-          // Use direct HTTP call since Python functions use on_request
-          const response = await fetch('http://127.0.0.1:5001/cerebellar-sdc/us-central1/extract_tables_enhanced', {
+          // Call Python Cloud Function using helper
+          const response = await fetch(getCloudFunctionUrl('extract_tables_enhanced'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pdf_base64: base64, detect_captions: true })
@@ -2026,8 +2409,8 @@
             new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
           );
 
-          // Call Python Cloud Function
-          const response = await fetch('http://127.0.0.1:5001/cerebellar-sdc/us-central1/extract_figures_enhanced', {
+          // Call Python Cloud Function using helper
+          const response = await fetch(getCloudFunctionUrl('extract_figures_enhanced'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pdf_base64: base64, min_size: 50, dpi: 150 })
@@ -2175,7 +2558,7 @@
       );
     }
 
-    function ExtractionForm({ data, highlights, pdfFile, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect, validationErrors = [], validationWarnings = [], isValidating = false, lastValidationTime = null }) {
+    function ExtractionForm({ data, highlights, pdfFile, currentField, aiFilledFields, onUpdate, onFieldSelect, onExport, onGenerateReport, isGeneratingReport = false, onGoToHighlight, onSmartSuggest, onQualityCheck, onGenerateCitation, citations, activeCitation, onCitationSelect, validationErrors = [], validationWarnings = [], isValidating = false, lastValidationTime = null }) {
       const currentPath = FIELD_MAP[currentField];
       const [collapsed, setCollapsed] = useState({ pop: false, int: false, out: false, meta: false, cit: false, analysis: false, validation: false });
       const toggle = (sec) => setCollapsed(prev => ({ ...prev, [sec]: !prev[sec] }));
@@ -2478,8 +2861,20 @@
             </div>
           </div>
 
-          <div className="panel-footer" style={{ marginTop: 20, padding: 0, borderTop: 'none' }}>
+          <div className="panel-footer" style={{ marginTop: 20, padding: 0, borderTop: 'none', display: 'flex', gap: '10px' }}>
             <button className="action-btn btn-export-json" onClick={onExport}>Download JSON</button>
+            <button
+              className="action-btn"
+              onClick={onGenerateReport}
+              disabled={isGeneratingReport}
+              style={{
+                background: 'linear-gradient(135deg, #8e44ad, #9b59b6)',
+                opacity: isGeneratingReport ? 0.6 : 1,
+                cursor: isGeneratingReport ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {isGeneratingReport ? '📄 Generating...' : '📄 Generate Report'}
+            </button>
           </div>
         </div>
       );
