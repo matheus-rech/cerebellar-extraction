@@ -33,6 +33,9 @@ pdfs/
 firebase-config.json
 firebase-config.ts
 
+# Frontend config with API keys (use config.example.js as template)
+public/config.js
+
 # Misc
 "firebase deploy./"
 

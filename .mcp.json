@@ -1,13 +1,11 @@
 {
   "mcpServers": {
     "genkit-cerebellar": {
-      "command": "/Users/matheusrech/.nvm/versions/node/v20.19.4/bin/node",
+      "command": "node",
       "args": ["./node_modules/.bin/genkit", "mcp"],
-      "cwd": "/Users/matheusrech/cerebellar-extraction",
       "timeout": 60000,
       "trust": true,
       "env": {
-        "PATH": "/Users/matheusrech/.nvm/versions/node/v20.19.4/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
         "NODE_ENV": "production"
       }
     }

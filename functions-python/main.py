@@ -11,8 +11,18 @@ import pdfplumber
 import io
 import json
 import base64
+import os
 
 initialize_app()
+
+
+def get_cors_origins():
+    """Get CORS allowed origins from environment or use defaults for local dev."""
+    origins_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+    if origins_env:
+        return [origin.strip() for origin in origins_env.split(',')]
+    # Default to localhost for development
+    return ["http://localhost:3000", "http://localhost:5000", "http://localhost:5002"]
 
 # Set memory and timeout for PDF processing
 pdf_options = options.MemoryOption.GB_1
@@ -22,7 +32,7 @@ timeout_options = options.SupportedRegion.US_CENTRAL1
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"  # Allow unauthenticated access
 )
 def extract_text_with_layout(req: https_fn.Request) -> https_fn.Response:
@@ -90,7 +100,7 @@ def extract_text_with_layout(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"  # Allow unauthenticated access
 )
 def extract_tables(req: https_fn.Request) -> https_fn.Response:
@@ -151,7 +161,7 @@ def extract_tables(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.GB_1,
     timeout_sec=180,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"  # Allow unauthenticated access
 )
 def extract_text_with_positions(req: https_fn.Request) -> https_fn.Response:
@@ -229,7 +239,7 @@ def extract_text_with_positions(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=60,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"  # Allow unauthenticated access
 )
 def detect_sections(req: https_fn.Request) -> https_fn.Response:
@@ -325,7 +335,7 @@ def detect_sections(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"  # Allow unauthenticated access
 )
 def extract_figures(req: https_fn.Request) -> https_fn.Response:
@@ -391,7 +401,7 @@ def extract_figures(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.GB_1,
     timeout_sec=180,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"
 )
 def capture_highlights(req: https_fn.Request) -> https_fn.Response:
@@ -532,7 +542,7 @@ def capture_highlights(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.GB_1,
     timeout_sec=300,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"
 )
 def generate_html_report(req: https_fn.Request) -> https_fn.Response:
@@ -823,7 +833,7 @@ def generate_html_report(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.MB_512,
     timeout_sec=120,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"
 )
 def extract_tables_enhanced(req: https_fn.Request) -> https_fn.Response:
@@ -961,7 +971,7 @@ def extract_tables_enhanced(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(
     memory=options.MemoryOption.GB_1,
     timeout_sec=180,
-    cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"]),
+    cors=options.CorsOptions(cors_origins=get_cors_origins(), cors_methods=["POST", "OPTIONS"]),
     invoker="public"
 )
 def extract_figures_enhanced(req: https_fn.Request) -> https_fn.Response:

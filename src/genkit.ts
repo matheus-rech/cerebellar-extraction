@@ -23,6 +23,7 @@ import {
   generateEvaluationReport,
   loadGroundTruth,
 } from "./evaluation/dataset.js";
+import {validateNosScores, validateNosScoresDetailed} from "./utils/nos-validation.js";
 import {
   mistralOCR,
   ExtractedTableSchema,
@@ -1797,30 +1798,18 @@ export const nosConsistencyEvaluator = ai.defineEvaluator(
 
     const {selectionScore, comparabilityScore, outcomeScore, totalScore} = output.quality;
 
-    // Validate ranges
-    const rangeValid =
-      selectionScore >= 0 && selectionScore <= 4 &&
-      comparabilityScore >= 0 && comparabilityScore <= 2 &&
-      outcomeScore >= 0 && outcomeScore <= 3 &&
-      totalScore >= 0 && totalScore <= 9;
-
-    // Validate total equals sum
-    const expectedTotal = selectionScore + comparabilityScore + outcomeScore;
-    const sumMatches = totalScore === expectedTotal;
-
-    let score = 0;
-    if (rangeValid) score += 0.5;
-    if (sumMatches) score += 0.5;
+    // Use shared validation utility
+    const validation = validateNosScores({selectionScore, comparabilityScore, outcomeScore, totalScore});
 
     return {
       testCaseId: datapoint.testCaseId,
       evaluation: {
-        score,
+        score: validation.score,
         details: {
-          rangeValid,
-          sumMatches,
-          expectedTotal,
-          actualTotal: totalScore,
+          rangeValid: validation.rangeValid,
+          sumMatches: validation.sumMatches,
+          expectedTotal: validation.expectedTotal,
+          actualTotal: validation.actualTotal,
           components: {selectionScore, comparabilityScore, outcomeScore},
         },
       },
@@ -1959,39 +1948,25 @@ export const evaluateExtraction = ai.defineFlow(
     function evaluateNosConsistency(output: CerebellarSDCData) {
       const quality = output.quality;
       if (!quality) return {score: 0, details: {reason: "No quality data"}};
+
       const {selectionScore, comparabilityScore, outcomeScore, totalScore} = quality;
-      const expectedTotal = (selectionScore || 0) + (comparabilityScore || 0) + (outcomeScore || 0);
-      const rangeValid = (selectionScore ?? 0) <= 4 && (comparabilityScore ?? 0) <= 2 && (outcomeScore ?? 0) <= 3;
-      const sumMatches = totalScore === expectedTotal;
 
-      // Enhanced check: verify item scores match domain subtotals (if available)
-      let itemScoresMatch = true;
-      if (quality.selection) {
-        const itemSum = (quality.selection.representativeness?.score || 0) +
-          (quality.selection.selectionOfNonExposed?.score || 0) +
-          (quality.selection.ascertainmentOfExposure?.score || 0) +
-          (quality.selection.outcomeNotPresentAtStart?.score || 0);
-        if (itemSum !== quality.selection.subtotal) itemScoresMatch = false;
-      }
-      if (quality.comparability) {
-        const itemSum = (quality.comparability.controlForMostImportant?.score || 0) +
-          (quality.comparability.controlForAdditional?.score || 0);
-        if (itemSum !== quality.comparability.subtotal) itemScoresMatch = false;
-      }
-      if (quality.outcome) {
-        const itemSum = (quality.outcome.assessmentOfOutcome?.score || 0) +
-          (quality.outcome.followUpLength?.score || 0) +
-          (quality.outcome.adequacyOfFollowUp?.score || 0);
-        if (itemSum !== quality.outcome.subtotal) itemScoresMatch = false;
-      }
+      // Use shared detailed validation utility (includes item-level checks)
+      const validation = validateNosScoresDetailed(
+        {selectionScore, comparabilityScore, outcomeScore, totalScore},
+        quality // Pass domains for item-level validation
+      );
 
-      // Calculate score
-      let score = 0;
-      if (rangeValid) score += 0.33;
-      if (sumMatches) score += 0.34;
-      if (itemScoresMatch) score += 0.33;
-
-      return {score, details: {rangeValid, sumMatches, itemScoresMatch, expectedTotal, actualTotal: totalScore}};
+      return {
+        score: validation.score,
+        details: {
+          rangeValid: validation.rangeValid,
+          sumMatches: validation.sumMatches,
+          itemScoresMatch: validation.itemScoresMatch,
+          expectedTotal: validation.expectedTotal,
+          actualTotal: validation.actualTotal,
+        },
+      };
     }
 
     // Run all evaluations

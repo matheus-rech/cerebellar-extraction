@@ -32,14 +32,20 @@
 <body>
   <div id="root"></div>
 
+  <!-- Configuration injection - create public/config.js with your keys (gitignored) -->
+  <script src="config.js" onerror="console.warn('config.js not found - using placeholders. Create config.js from config.example.js')"></script>
+
   <script type="text/babel">
     const { useState, useEffect, useRef, useCallback } = React;
 
     // --- GLOBAL CONFIGURATION ---
+    // Keys are loaded from config.js (not committed to git)
+    // For local dev: copy config.example.js to config.js and add your keys
+    // For production: set via Firebase hosting environment
 
     // Firebase Config - Updated for Firebase AI Logic / Data Connect
     const firebaseConfig = {
-      apiKey: "AIzaSyAMr_rIvuAvRyvAcAsLTBOLrKiw8ikvQFQ",
+      apiKey: window.__FIREBASE_API_KEY__ || "YOUR_FIREBASE_API_KEY",
       authDomain: "cerebellar-extraction.firebaseapp.com",
       projectId: "cerebellar-extraction",
       storageBucket: "cerebellar-extraction.firebasestorage.app",
@@ -87,7 +93,7 @@
     const perf = firebase.performance();
 
     const appId = "cerebellar-extraction";
-    const apiKey = "AIzaSyA0q3GpEymeImQKwJn3g226CYLncCJaOCc"; // Gemini API key
+    const apiKey = window.__GEMINI_API_KEY__ || "YOUR_GEMINI_API_KEY"; // Gemini API key (set in config.js)
 
     // Genkit Flow Server URL (for chat with RAG + citations)
     const GENKIT_SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
