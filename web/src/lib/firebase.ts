@@ -46,6 +46,6 @@ storage = getStorage(app);
 // Initialize Firebase AI Logic with Gemini
 // No API key needed - Firebase handles authentication automatically
 ai = getAI(app, { backend: new GoogleAIBackend() });
-geminiModel = getGenerativeModel(ai, { model: 'gemini-2.0-flash' });
+geminiModel = getGenerativeModel(ai, { model: 'gemini-3-pro-preview' });
 
 export { app, db, storage, ai, geminiModel };
