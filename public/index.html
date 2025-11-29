@@ -245,15 +245,32 @@
      * @returns {Promise<Array>}
      */
     async function getPapers() {
-      const snapshot = await db.collection('papers')
-        .orderBy('uploadedAt', 'desc')
-        .get();
+      try {
+        // Try with orderBy first (requires index)
+        const snapshot = await db.collection('papers')
+          .orderBy('uploadedAt', 'desc')
+          .get();
 
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        uploadedAt: doc.data().uploadedAt?.toDate?.() || new Date(),
-      }));
+        console.log(`📚 Loaded ${snapshot.docs.length} papers from library`);
+        return snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          uploadedAt: doc.data().uploadedAt?.toDate?.() || new Date(),
+        }));
+      } catch (err) {
+        // Fallback: get all papers without ordering (index not created yet)
+        console.warn('📚 Index not ready, loading papers without sorting:', err.message);
+        const snapshot = await db.collection('papers').get();
+        console.log(`📚 Loaded ${snapshot.docs.length} papers (unsorted)`);
+
+        const papers = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          uploadedAt: doc.data().uploadedAt?.toDate?.() || new Date(),
+        }));
+        // Sort client-side
+        return papers.sort((a, b) => b.uploadedAt - a.uploadedAt);
+      }
     }
 
     /**
@@ -898,7 +915,7 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
       const [pageNum, setPageNum] = useState(1);
       const [numPages, setNumPages] = useState(0);
       const [pageOneText, setPageOneText] = useState('');
-      const [availablePDFs, setAvailablePDFs] = useState([]);
+      // Removed availablePDFs - now using only libraryPapers from Firebase
       const [selectedPDFDropdown, setSelectedPDFDropdown] = useState('');
 
       // Extraction State
@@ -1050,14 +1067,6 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
         return unsubscribe;
       }, []);
 
-      // Load available PDFs from pdfs.json
-      useEffect(() => {
-        fetch('pdf/pdfs.json')
-          .then(res => res.json())
-          .then(data => setAvailablePDFs(data.pdfs || []))
-          .catch(err => console.error('Failed to load PDFs:', err));
-      }, []);
-
       // Load papers from Firebase Storage/Firestore library
       const loadLibraryPapers = async () => {
         setLibraryLoading(true);
@@ -1107,8 +1116,18 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
         setShowLibraryDropdown(false); // Close dropdown
         setIsLoading(true);
         try {
+          // Get download URL - use existing or generate from storage path
+          let downloadURL = paper.downloadURL;
+          if (!downloadURL && paper.storagePath) {
+            console.log('📥 Generating download URL from storage path:', paper.storagePath);
+            downloadURL = await storage.ref(paper.storagePath).getDownloadURL();
+          }
+          if (!downloadURL) {
+            throw new Error('No download URL or storage path available for this paper');
+          }
+
           // Download PDF content
-          const arrayBuffer = await downloadPaperContent(paper.downloadURL);
+          const arrayBuffer = await downloadPaperContent(downloadURL);
           const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
           const file = new File([blob], paper.fileName, { type: 'application/pdf' });
 
@@ -2004,9 +2023,10 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
               setActiveCitation(cit);
               if (cit.page !== pageNum) setPageNum(cit.page);
             }}
-            availablePDFs={availablePDFs}
+            libraryPapers={libraryPapers}
             selectedPDFDropdown={selectedPDFDropdown}
             onPDFDropdownChange={handlePDFDropdownChange}
+            onLoadFromLibrary={handleLoadFromLibrary}
           />
 
           <div className="extraction-panel">
@@ -2912,7 +2932,7 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
       currentField, selectionMode, onFileUpload, onPageChange,
       onFieldSelect, onSelectionModeToggle, onAddHighlight, onClearHighlights,
       citationHighlights, activeCitation, onCitationClick, onViewportChange,
-      availablePDFs, selectedPDFDropdown, onPDFDropdownChange
+      libraryPapers, selectedPDFDropdown, onPDFDropdownChange, onLoadFromLibrary
     }) {
       const canvasRef = useRef(null);
       const [scale, setScale] = useState(1.2);
@@ -3002,7 +3022,14 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <select
                 value={selectedPDFDropdown}
-                onChange={e => onPDFDropdownChange(e.target.value)}
+                onChange={e => {
+                  const docId = e.target.value;
+                  onPDFDropdownChange(docId);
+                  if (docId) {
+                    const paper = libraryPapers.find(p => (p.id || p.paperId) === docId);
+                    if (paper) onLoadFromLibrary(paper);
+                  }
+                }}
                 style={{
                   padding: '8px 12px',
                   background: '#f8f9fa',
@@ -3010,16 +3037,17 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
                   borderRadius: '4px',
                   fontSize: '13px',
                   cursor: 'pointer',
-                  minWidth: '150px'
+                  minWidth: '200px'
                 }}
               >
-                <option value="">Select from Library</option>
-                {availablePDFs.map((pdf, idx) => {
-                  const highlightCount = (highlights[pdf.filename] || []).length;
-                  const badge = highlightCount > 0 ? ` (${highlightCount} highlights)` : '';
+                <option value="">📚 Select from Library ({libraryPapers.length})</option>
+                {libraryPapers.map((paper) => {
+                  const docId = paper.id || paper.paperId;
+                  const highlightCount = (highlights[paper.fileName] || []).length;
+                  const badge = highlightCount > 0 ? ` (${highlightCount} hl)` : '';
                   return (
-                    <option key={idx} value={pdf.filename}>
-                      {pdf.name}{badge}
+                    <option key={docId} value={docId}>
+                      {paper.fileName}{badge}
                     </option>
                   );
                 })}
