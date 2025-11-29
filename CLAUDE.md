@@ -47,7 +47,7 @@ Full-featured React 18 app (3,400+ lines) with Firebase AI Logic integration.
 - PDF.js viewer with text selection
 - 4-tab layout: Form, Tables, Figures, Chat
 - 7 dynamic field types with linked selectors
-- Firebase AI Logic (Gemini 2.0 Flash) - no API key exposure
+- Firebase AI Logic (Gemini 3 Pro Preview) - no API key exposure
 - QuickCritique real-time validation
 - Paper library with Firebase Storage
 
@@ -57,7 +57,7 @@ Full-featured React 18 app (3,400+ lines) with Firebase AI Logic integration.
 // Initialized automatically via dynamic import
 const { getAI, getGenerativeModel, GoogleAIBackend } = await import('firebase/ai');
 const ai = getAI(app, { backend: new GoogleAIBackend() });
-const model = getGenerativeModel(ai, { model: 'gemini-2.0-flash' });
+const model = getGenerativeModel(ai, { model: 'gemini-3-pro-preview' });
 
 // Two extraction modes:
 callGemini(prompt, schema)           // Text-based analysis

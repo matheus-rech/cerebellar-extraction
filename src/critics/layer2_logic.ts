@@ -135,7 +135,7 @@ If everything looks correct, return an empty array: []`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),
@@ -225,7 +225,7 @@ Return JSON array of issues (or empty array if no problems).`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),
@@ -309,7 +309,7 @@ Return JSON array of mathematical inconsistencies (or empty array).`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),
@@ -391,7 +391,7 @@ Return JSON array of issues (or empty array if properly stratified).`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),
@@ -467,7 +467,7 @@ Return JSON array of patient flow inconsistencies.`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),
@@ -546,7 +546,7 @@ Return JSON array of documentation gaps.`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),
@@ -626,7 +626,7 @@ Return JSON array of clarity issues.`;
     try {
       const response = await withRetry(
         () => ai.generate({
-          model: googleAI.model("gemini-2.5-flash"),
+          model: googleAI.model("gemini-3-pro-preview"),
           prompt,
           output: {schema: z.array(z.object({
             field: z.string(),

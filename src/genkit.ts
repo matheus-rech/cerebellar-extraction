@@ -773,7 +773,7 @@ Return structured JSON matching the output schema.`;
 
     try {
       const response = await ai.generate({
-        model: googleAI.model("gemini-2.5-flash"),
+        model: googleAI.model("gemini-3-pro-preview"),
         prompt: [
           {text: prompt},
           {media: {contentType: mimeType, url: `data:${mimeType};base64,${imageBase64}`}},
@@ -1061,7 +1061,7 @@ Respond with structured JSON containing:
 4. warnings: Any ambiguities or potential issues`;
 
     const response = await ai.generate({
-      model: "googleai/gemini-2.0-flash",
+      model: "googleai/gemini-3-pro-preview",
       prompt,
       output: {
         format: "json",

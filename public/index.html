@@ -108,9 +108,9 @@
       try {
         const { getAI, getGenerativeModel, GoogleAIBackend } = await import('https://www.gstatic.com/firebasejs/11.8.0/firebase-ai.js');
         const ai = getAI(app, { backend: new GoogleAIBackend() });
-        firebaseAIModel = getGenerativeModel(ai, { model: 'gemini-2.5-flash' });
+        firebaseAIModel = getGenerativeModel(ai, { model: 'gemini-3-pro-preview' });
         firebaseAIReady = true;
-        console.log('✅ Firebase AI Logic initialized (gemini-2.5-flash) - No API key needed!');
+        console.log('✅ Firebase AI Logic initialized (gemini-3-pro-preview) - No API key needed!');
       } catch (error) {
         console.error('❌ Failed to initialize Firebase AI Logic:', error);
         console.warn('Enable Gemini API at: https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com');

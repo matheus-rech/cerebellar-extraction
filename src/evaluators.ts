@@ -49,7 +49,7 @@ export async function evaluateFaithfulness(
 
   try {
     const {output: result} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
+      model: googleAI.model("gemini-3-pro-preview"),
       prompt: `You are evaluating faithfulness of extracted data to source text.
 
 TASK: Determine how faithfully the extracted value represents the source text.
@@ -127,7 +127,7 @@ SDC Study Extraction Schema:
 
   try {
     const {output: result} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
+      model: googleAI.model("gemini-3-pro-preview"),
       prompt: `You are evaluating whether extracted data is relevant to the expected schema.
 
 EXPECTED SCHEMA:
@@ -196,7 +196,7 @@ export async function evaluateHallucination(
 
   try {
     const {output: result} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
+      model: googleAI.model("gemini-3-pro-preview"),
       prompt: `You are a medical research expert detecting hallucinated data in study extractions.
 
 CRITICAL: Medical data hallucinations can lead to incorrect systematic review conclusions.
@@ -275,7 +275,7 @@ export async function evaluateClinicalAccuracy(
 
   try {
     const {output: result} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
+      model: googleAI.model("gemini-3-pro-preview"),
       prompt: `You are a neurosurgical expert validating SDC (Suboccipital Decompressive Craniectomy) study extraction.
 
 EXTRACTED DATA:
