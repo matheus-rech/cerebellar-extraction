@@ -3,40 +3,29 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ============================================
-    // USER-SPECIFIC EXTRACTION DATA
+    // DEVELOPMENT MODE - PUBLIC ACCESS
     // ============================================
-    // Users can only read/write their own extraction artifacts
+    // WARNING: These rules allow public read/write access.
+    // For production, re-enable authentication.
+
+    // User extraction data - public access for development
     match /artifacts/{appId}/users/{userId}/data/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if true;
     }
 
-    // ============================================
-    // PAPER LIBRARY (Shared Research Papers)
-    // ============================================
-    // Authenticated users can read all papers
-    // Authenticated users can create/update/delete papers
-    // Papers are shared across the research team
+    // Paper library - public access for development
     match /papers/{paperId} {
-      // Anyone authenticated can read papers
-      allow read: if request.auth != null;
-
-      // Anyone authenticated can create papers
-      allow create: if request.auth != null
-        && request.resource.data.keys().hasAll(['paperId', 'fileName', 'storagePath'])
-        && request.resource.data.fileName is string
-        && request.resource.data.fileName.size() > 0;
-
-      // Anyone authenticated can update papers (for processing status, metadata)
-      allow update: if request.auth != null;
-
-      // Anyone authenticated can delete papers
-      allow delete: if request.auth != null;
+      allow read, write: if true;
     }
 
-    // ============================================
-    // DENY ALL OTHER ACCESS (security default)
-    // ============================================
-    // studies and chat_sessions are only accessed via Admin SDK (backend)
-    // No client-side rules needed for those collections
+    // Studies collection - public access for development
+    match /studies/{studyId} {
+      allow read, write: if true;
+    }
+
+    // Chat sessions - public access for development
+    match /chat_sessions/{sessionId} {
+      allow read, write: if true;
+    }
   }
 }

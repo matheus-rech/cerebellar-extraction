@@ -87,12 +87,38 @@
       } catch (e) { console.warn('⚠️ Functions emulator not available:', e.message); }
     }
 
+    // DEVELOPMENT MODE: Set to true to require Google sign-in
+    const REQUIRE_AUTH = false;
+
     // Now create service instances (these will use the emulator connections)
     const auth = firebase.auth();
     const db = firebase.firestore();
     const storage = firebase.storage();
     const analytics = firebase.analytics();
     const perf = firebase.performance();
+
+    // If auth not required, use anonymous auth for Storage uploads
+    // This ensures user is authenticated before any storage operations
+    let authReadyPromise = Promise.resolve();
+    if (!REQUIRE_AUTH) {
+      authReadyPromise = auth.signInAnonymously()
+        .then(() => {
+          console.log('✅ Anonymous auth ready for Storage uploads');
+        })
+        .catch(err => {
+          console.error('❌ Anonymous auth failed:', err.message);
+          throw err;
+        });
+    }
+
+    // Helper to ensure auth is ready before storage ops
+    async function ensureAuthReady() {
+      await authReadyPromise;
+      if (!auth.currentUser) {
+        // Retry anonymous sign-in
+        await auth.signInAnonymously();
+      }
+    }
 
     const appId = "cerebellar-extraction";
 
@@ -159,6 +185,9 @@
      * @returns {Promise<{paperId: string, downloadURL: string}>}
      */
     async function uploadPaper(file, options = {}) {
+      // Ensure auth is ready before uploading
+      await ensureAuthReady();
+
       const paperId = options.paperId || `paper_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const fileName = file.name;
       const fileSize = file.size;
@@ -1004,18 +1033,16 @@ Reply with JSON: {hasFigures: true/false, count: number, types: ["figure_type1",
         showToast("Signed out");
       };
 
-      // Check if running in emulator/localhost mode
-      const isEmulatorMode = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
+      // Auth bypass - uses global REQUIRE_AUTH flag defined at top of file
       useEffect(() => {
-        if (!auth) return;
-
-        // In emulator mode, bypass auth entirely for E2E testing
-        if (isEmulatorMode) {
-          console.log('🧪 Emulator mode: bypassing auth for E2E testing');
-          setUser({ uid: 'test-user-emulator', isAnonymous: true, email: 'test@localhost' });
+        if (!REQUIRE_AUTH) {
+          // Bypass auth - create anonymous session immediately
+          console.log('🔓 Auth disabled: using anonymous session');
+          setUser({ uid: 'anonymous-user', isAnonymous: true, email: 'anonymous@cerebellar.app' });
           return;
         }
+
+        if (!auth) return;
 
         const unsubscribe = auth.onAuthStateChanged(user => {
           setUser(user);
