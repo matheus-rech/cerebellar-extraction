@@ -1,9 +1,42 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to read and write only their own data within the artifacts collection
+
+    // ============================================
+    // USER-SPECIFIC EXTRACTION DATA
+    // ============================================
+    // Users can only read/write their own extraction artifacts
     match /artifacts/{appId}/users/{userId}/data/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // ============================================
+    // PAPER LIBRARY (Shared Research Papers)
+    // ============================================
+    // Authenticated users can read all papers
+    // Authenticated users can create/update/delete papers
+    // Papers are shared across the research team
+    match /papers/{paperId} {
+      // Anyone authenticated can read papers
+      allow read: if request.auth != null;
+
+      // Anyone authenticated can create papers
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasAll(['paperId', 'fileName', 'storagePath'])
+        && request.resource.data.fileName is string
+        && request.resource.data.fileName.size() > 0;
+
+      // Anyone authenticated can update papers (for processing status, metadata)
+      allow update: if request.auth != null;
+
+      // Anyone authenticated can delete papers
+      allow delete: if request.auth != null;
+    }
+
+    // ============================================
+    // DENY ALL OTHER ACCESS (security default)
+    // ============================================
+    // studies and chat_sessions are only accessed via Admin SDK (backend)
+    // No client-side rules needed for those collections
   }
 }

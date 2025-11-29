@@ -1,0 +1,27 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ============================================
+    // PAPER STORAGE (PDF files)
+    // ============================================
+    // Path: papers/{paperId}/{fileName}
+    match /papers/{paperId}/{fileName} {
+      // Authenticated users can read papers
+      allow read: if request.auth != null;
+
+      // Authenticated users can upload PDFs (max 50MB)
+      allow create: if request.auth != null
+        && request.resource.size < 50 * 1024 * 1024  // 50MB limit
+        && request.resource.contentType.matches('application/pdf');
+
+      // Authenticated users can delete their uploads
+      allow delete: if request.auth != null;
+    }
+
+    // ============================================
+    // DENY ALL OTHER ACCESS
+    // ============================================
+    // No other paths are allowed
+  }
+}
