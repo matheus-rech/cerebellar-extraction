@@ -201,45 +201,31 @@ export function rangeSentinel(data: any): CritiqueIssue[] {
     }
   }
 
+  // Helper function to validate NOS domain scores
+  const validateDomainScore = (
+    score: string | number | undefined,
+    fieldName: string,
+    domainLabel: string,
+    maxScore: number
+  ) => {
+    if (score !== undefined) {
+      const parsedScore = typeof score === 'number' ? score : parseFloat(score);
+      if (!isNaN(parsedScore) && (parsedScore < 0 || parsedScore > maxScore)) {
+        issues.push({
+          criticId: "rangeSentinel",
+          field: fieldName,
+          severity: "CRITICAL",
+          message: `Invalid NOS ${domainLabel} score: ${parsedScore} (valid range: 0-${maxScore})`,
+          currentValue: parsedScore,
+        });
+      }
+    }
+  };
+
   // Check individual NOS component scores
-  if (data.quality?.selectionScore !== undefined) {
-    const sel = parseFloat(data.quality.selectionScore);
-    if (!isNaN(sel) && (sel < 0 || sel > 4)) {
-      issues.push({
-        criticId: "rangeSentinel",
-        field: "quality.selectionScore",
-        severity: "CRITICAL",
-        message: `Invalid NOS selection score: ${sel} (valid range: 0-4)`,
-        currentValue: sel,
-      });
-    }
-  }
-
-  if (data.quality?.comparabilityScore !== undefined) {
-    const comp = parseFloat(data.quality.comparabilityScore);
-    if (!isNaN(comp) && (comp < 0 || comp > 2)) {
-      issues.push({
-        criticId: "rangeSentinel",
-        field: "quality.comparabilityScore",
-        severity: "CRITICAL",
-        message: `Invalid NOS comparability score: ${comp} (valid range: 0-2)`,
-        currentValue: comp,
-      });
-    }
-  }
-
-  if (data.quality?.outcomeScore !== undefined) {
-    const out = parseFloat(data.quality.outcomeScore);
-    if (!isNaN(out) && (out < 0 || out > 3)) {
-      issues.push({
-        criticId: "rangeSentinel",
-        field: "quality.outcomeScore",
-        severity: "CRITICAL",
-        message: `Invalid NOS outcome score: ${out} (valid range: 0-3)`,
-        currentValue: out,
-      });
-    }
-  }
+  validateDomainScore(data.quality?.selectionScore, "quality.selectionScore", "selection", 4);
+  validateDomainScore(data.quality?.comparabilityScore, "quality.comparabilityScore", "comparability", 2);
+  validateDomainScore(data.quality?.outcomeScore, "quality.outcomeScore", "outcome", 3);
 
   // 6. NOS component sum validation
   if (
