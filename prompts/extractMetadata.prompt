@@ -1,0 +1,41 @@
+---
+model: googleai/gemini-3-pro-preview
+config:
+  temperature: 0.1
+  maxOutputTokens: 2048
+input:
+  schema:
+    pdfText: string, The raw PDF text content
+output:
+  schema:
+    title: string
+    firstAuthor: string
+    publicationYear: integer
+    journal?: string
+    hospitalCenter: string, Name of hospital/institution
+    studyPeriod: string, Data collection dates (e.g., 'Jan 2010 - Dec 2020')
+    studyDesign?: string
+---
+{{role "system"}}
+You are a medical research data extractor specializing in cerebellar stroke surgery studies.
+Your task is to extract study metadata with high precision.
+
+{{role "user"}}
+Extract the following metadata from this medical research paper on cerebellar stroke surgery:
+
+**Required Fields:**
+- Title: The full title of the paper
+- First Author: Family name of the first author
+- Publication Year: The year of publication (integer)
+- Journal: Name of the journal (if available)
+- Hospital Center: The hospital or institution where the study was conducted
+- Study Period: The dates of data collection (format: "Start - End")
+- Study Design: Classify as Retrospective, Prospective, RCT, Case Series, or Other
+
+**Instructions:**
+1. Focus on the TITLE, ABSTRACT, and AUTHOR AFFILIATIONS sections
+2. For study period, look in Methods section for phrases like "between January 2010 and December 2020"
+3. If a field is not found, return null
+
+**STUDY TEXT:**
+{{pdfText}}

@@ -1,0 +1,82 @@
+---
+model: googleai/gemini-3-pro-preview
+config:
+  temperature: 0.1
+  maxOutputTokens: 6144
+input:
+  schema:
+    pdfText: string, The raw PDF text content
+output:
+  schema:
+    mortality:
+      value?: string, Rate with timepoint
+      sourceText?: string
+      pageNumber?: integer
+    mRS_favorable:
+      value?: string, Favorable outcome with definition
+      sourceText?: string
+      pageNumber?: integer
+    complications(array): string
+    lengthOfStay:
+      value?: number, Days
+      sourceText?: string
+      pageNumber?: integer
+    allOutcomes:
+      - measureName: string
+        timepoint: string
+        resultValue: string
+        definition?: string
+        sourceText: string
+---
+{{role "system"}}
+You are extracting clinical outcomes data from neurosurgical studies.
+Focus on mortality, functional outcomes, complications, and all reported measures.
+
+{{role "user"}}
+Extract OUTCOMES data from this Suboccipital Decompressive Craniectomy (SDC) study.
+
+**Focus Areas:**
+- RESULTS section
+- TABLES (especially outcome tables)
+- DISCUSSION section
+
+**Required Extractions:**
+
+1. **Mortality** (with source quote):
+   - Rate (percentage or fraction)
+   - Timepoint (in-hospital, 30-day, 6-month, 1-year, etc.)
+   - Example: "15.3% at 30 days"
+
+2. **mRS Favorable Outcome** (with source quote):
+   - Rate
+   - Definition: Specify if favorable = mRS 0-2 or mRS 0-3
+   - Timepoint
+   - Example: "68% achieved mRS 0-3 at 6 months"
+
+3. **Complications**:
+   - List ALL reported complications
+   - Include rates if provided
+
+4. **Length of Stay** (with source quote):
+   - Mean hospital stay in DAYS
+   - ICU stay if reported separately
+
+5. **All Outcome Measures**:
+   - Extract EVERY outcome measure reported
+   - Include: GOS, NIHSS, Barthel Index, ICU days, etc.
+   - Note timepoint for each
+
+**CRITICAL RULES:**
+- Provide VERBATIM quotes in sourceText fields
+- Include PAGE NUMBER where found
+- Always note the TIMEPOINT for outcome measurement
+- For mRS, ALWAYS specify the definition of "favorable"
+- If not stated, return null
+
+**COMMON PITFALL - SCALE CONFUSION:**
+- mRS: 0 = no symptoms, 6 = death (LOWER is better)
+- GOS: 1 = death, 5 = good recovery (HIGHER is better)
+- DO NOT confuse these scales!
+
+**STUDY TEXT:**
+{{pdfText}}
