@@ -1,0 +1,48 @@
+# Cloud Build configuration for Genkit Multi-Agent System
+# Deploy to Cloud Run with automatic scaling
+
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/genkit-cerebellar:$COMMIT_SHA', '.']
+
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/genkit-cerebellar:$COMMIT_SHA']
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'genkit-cerebellar'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/genkit-cerebellar:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '3600'  # 1 hour timeout for long-running extractions
+      - '--concurrency'
+      - '80'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--set-env-vars'
+      - 'NODE_ENV=production'
+      - '--set-secrets'
+      - 'GOOGLE_GENAI_API_KEY=GOOGLE_GENAI_API_KEY:latest,MISTRAL_API_KEY=MISTRAL_API_KEY:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/genkit-cerebellar:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
