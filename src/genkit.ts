@@ -10,6 +10,7 @@ import {genkit, z, Document} from "genkit";
 import {devLocalVectorstore} from "@genkit-ai/dev-local-vectorstore";
 import * as fs from "fs";
 import * as path from "path";
+import {fileURLToPath} from "url";
 import pLimit from "p-limit";
 import {createRequire} from "module";
 import {Parser} from "json2csv";
@@ -149,7 +150,7 @@ const ai = genkit({
     ]),
   ],
   model: "googleai/gemini-3-pro-preview",
-  promptDir: path.resolve(path.dirname(new URL(import.meta.url).pathname), "prompts"), // Dotprompt templates for extraction agents
+  promptDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "prompts"), // Dotprompt templates for extraction agents
 });
 
 // ==========================================
