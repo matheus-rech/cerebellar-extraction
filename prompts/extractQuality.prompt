@@ -8,68 +8,68 @@ input:
     pdfText: string, The raw PDF text content
 output:
   schema:
-    selectionScore: integer
-    comparabilityScore: integer
-    outcomeScore: integer
-    totalScore: integer
+    selectionScore: number
+    comparabilityScore: number
+    outcomeScore: number
+    totalScore: number
     qualityRating?: string
     selection:
       representativeness:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
       selectionOfNonExposed:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
       ascertainmentOfExposure:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
       outcomeNotPresentAtStart:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
     comparability:
       controlForMostImportant:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
       controlForAdditional:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
     outcome:
       assessmentOfOutcome:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
       followUpLength:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
       adequacyOfFollowUp:
         item: string
-        score: integer
+        score: number
         justification: string
         sourceText?: string
-        pageNumber?: integer
+        pageNumber?: number
     biasNotes: string
 ---
 {{role "system"}}
