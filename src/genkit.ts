@@ -150,7 +150,7 @@ const ai = genkit({
     ]),
   ],
   model: "googleai/gemini-3-pro-preview",
-  promptDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "prompts"), // Dotprompt templates for extraction agents
+  promptDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "prompts"), // Dotprompt templates for extraction agents
 });
 
 // ==========================================
