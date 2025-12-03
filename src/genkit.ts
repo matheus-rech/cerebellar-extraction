@@ -3,7 +3,8 @@
 // Production-ready extraction system for SDC systematic review
 // Supports both local development (JSON files) and production (Firestore)
 
-import "dotenv/config";
+import * as dotenv from "dotenv";
+dotenv.config({ override: true }); // Override existing env vars (e.g., from shell)
 import {googleAI} from "@genkit-ai/googleai";
 import {genkit, z, Document} from "genkit";
 import {devLocalVectorstore} from "@genkit-ai/dev-local-vectorstore";
@@ -13,6 +14,49 @@ import pLimit from "p-limit";
 import {createRequire} from "module";
 import {Parser} from "json2csv";
 import * as readline from "readline/promises";
+import {startFlowServer} from "@genkit-ai/express";
+import {critiqueExtraction, quickCritique, CritiqueReportSchema, CritiqueMode} from "./critics/index.js";
+import {
+  createGroundTruth,
+  annotateField,
+  evaluateAgainstGroundTruth,
+  generateEvaluationReport,
+  loadGroundTruth,
+} from "./evaluation/dataset.js";
+import {validateNosScores, validateNosScoresDetailed} from "./utils/nos-validation.js";
+import {
+  mistralOCR,
+  ExtractedTableSchema,
+  ExtractedFigureSchema,
+  MistralOCRResultSchema,
+  mapTableToSchemaFields,
+} from "./mistral-ocr.js";
+import {
+  semanticChunk,
+  chunkMedicalPaper,
+  chunkWithPages,
+  ChunkSchema,
+  ChunkingOptionsSchema,
+  PartialChunkingOptionsSchema,
+  type Chunk,
+  type ChunkingOptions,
+  type PartialChunkingOptions,
+  type PageText,
+  DEFAULT_CHUNKING_OPTIONS,
+} from "./chunking.js";
+
+// Chat module (modularized)
+import {
+  createChatSession,
+  sendChatMessage,
+  getChatHistory,
+  listChatSessions,
+  deleteChatSession,
+  chat,
+  chatWithPDF,
+  type SessionData,
+  type PDFChatState,
+} from "./chat/index.js";
 const require = createRequire(import.meta.url);
 const {PDFParse} = require("pdf-parse");
 
@@ -105,6 +149,7 @@ const ai = genkit({
     ]),
   ],
   model: "googleai/gemini-3-pro-preview",
+  promptDir: "./prompts", // Dotprompt templates for extraction agents
 });
 
 // ==========================================
@@ -112,6 +157,7 @@ const ai = genkit({
 // ==========================================
 
 // Helper for verification: Every major data point gets a value and a source quote
+// pageNumber enables "Jump to Source" functionality in the Review UI
 const VerifiableField = <T extends z.ZodTypeAny>(schema: T) =>
   z.object({
     value: schema.nullable(),
@@ -119,6 +165,13 @@ const VerifiableField = <T extends z.ZodTypeAny>(schema: T) =>
       .string()
       .describe("The verbatim quote from the text that proves this value.")
       .nullable(),
+    pageNumber: z
+      .number()
+      .int()
+      .positive()
+      .describe("The page number (1-indexed) where this value was found in the PDF.")
+      .nullable()
+      .optional(),
   });
 
 const StudyMetadataSchema = z.object({
@@ -179,12 +232,45 @@ const OutcomesSchema = z.object({
   allOutcomes: z.array(OutcomeMetricSchema).describe("All primary and secondary outcomes extracted"),
 });
 
+// Individual NOS item assessment for reproducibility
+const NOSItemAssessmentSchema = z.object({
+  item: z.string().describe("The NOS item being assessed"),
+  score: z.number().min(0).max(1).describe("0 = no star, 1 = star awarded"),
+  justification: z.string().describe("Brief explanation for the score"),
+  sourceText: z.string().nullable().describe("Verbatim quote supporting the assessment"),
+  pageNumber: z.number().int().positive().nullable().optional().describe("Page number where evidence was found"),
+});
+
 const QualitySchema = z.object({
+  // Selection Domain (0-4 stars)
+  selection: z.object({
+    representativeness: NOSItemAssessmentSchema.describe("S1: Representativeness of the exposed cohort"),
+    selectionOfNonExposed: NOSItemAssessmentSchema.describe("S2: Selection of the non-exposed cohort"),
+    ascertainmentOfExposure: NOSItemAssessmentSchema.describe("S3: Ascertainment of exposure"),
+    outcomeNotPresentAtStart: NOSItemAssessmentSchema.describe("S4: Demonstration that outcome was not present at start"),
+    subtotal: z.number().min(0).max(4).describe("Selection domain subtotal (0-4)"),
+  }),
+  // Comparability Domain (0-2 stars)
+  comparability: z.object({
+    controlForMostImportant: NOSItemAssessmentSchema.describe("C1: Study controls for the most important factor (e.g., GCS)"),
+    controlForAdditional: NOSItemAssessmentSchema.describe("C2: Study controls for additional factor (e.g., age)"),
+    subtotal: z.number().min(0).max(2).describe("Comparability domain subtotal (0-2)"),
+  }),
+  // Outcome Domain (0-3 stars)
+  outcome: z.object({
+    assessmentOfOutcome: NOSItemAssessmentSchema.describe("O1: Assessment of outcome (independent/blinded)"),
+    followUpLength: NOSItemAssessmentSchema.describe("O2: Was follow-up long enough for outcomes to occur"),
+    adequacyOfFollowUp: NOSItemAssessmentSchema.describe("O3: Adequacy of follow-up of cohorts"),
+    subtotal: z.number().min(0).max(3).describe("Outcome domain subtotal (0-3)"),
+  }),
+  // Overall
+  totalScore: z.number().min(0).max(9).describe("Total Newcastle-Ottawa Scale score (0-9)"),
+  qualityRating: z.enum(["Good", "Fair", "Poor"]).describe("Overall quality: Good (7-9), Fair (4-6), Poor (0-3)"),
+  biasNotes: z.string().describe("Summary of key methodological limitations and potential biases"),
+  // Legacy fields for backward compatibility
   selectionScore: z.number().min(0).max(4).describe("NOS Selection score (0-4)"),
   comparabilityScore: z.number().min(0).max(2).describe("NOS Comparability score (0-2)"),
   outcomeScore: z.number().min(0).max(3).describe("NOS Outcome score (0-3)"),
-  totalScore: z.number().describe("Total Newcastle-Ottawa Scale score (0-9)"),
-  biasNotes: z.string().describe("Assessment of potential biases (selection, attrition, etc.)"),
 });
 
 // The Master Schema - aligned with CerebellumExtractionData in TheAgent
@@ -228,10 +314,11 @@ export function formatVerificationReport(data: CerebellarSDCData): string {
   report += `**${data.metadata.title}**\n\n`;
   report += `Hospital: ${data.metadata.hospitalCenter} | Period: ${data.metadata.studyPeriod}\n\n`;
 
-  const addLine = (label: string, item: {value: unknown; sourceText: string | null} | undefined) => {
+  const addLine = (label: string, item: {value: unknown; sourceText: string | null; pageNumber?: number | null} | undefined) => {
     if (!item) return;
     const val = item.value !== null ? item.value : "Not Found";
-    const quote = item.sourceText ? `\n  > "${item.sourceText}"` : "";
+    const pageRef = item.pageNumber ? ` (p.${item.pageNumber})` : "";
+    const quote = item.sourceText ? `\n  > "${item.sourceText}"${pageRef}` : "";
     report += `- **${label}**: ${val}${quote}\n`;
   };
 
@@ -270,11 +357,70 @@ export function formatVerificationReport(data: CerebellarSDCData): string {
   });
 
   report += `\n### Quality Assessment (Newcastle-Ottawa Scale)\n`;
-  report += `- Selection: ${data.quality.selectionScore}/4\n`;
-  report += `- Comparability: ${data.quality.comparabilityScore}/2\n`;
-  report += `- Outcome: ${data.quality.outcomeScore}/3\n`;
-  report += `- **Total: ${data.quality.totalScore}/9**\n`;
-  report += `- Bias Notes: ${data.quality.biasNotes}\n`;
+  report += `**Overall: ${data.quality.totalScore}/9 (${data.quality.qualityRating || "Not rated"})**\n\n`;
+
+  // Selection Domain (enhanced detail)
+  report += `#### Selection (${data.quality.selectionScore}/4)\n`;
+  if (data.quality.selection) {
+    const s = data.quality.selection;
+    const formatItem = (item: {score: number; justification: string; sourceText?: string | null; pageNumber?: number | null}) => {
+      const star = item.score === 1 ? "★" : "☆";
+      const page = item.pageNumber ? ` (p.${item.pageNumber})` : "";
+      let line = `  ${star} ${item.justification}${page}\n`;
+      if (item.sourceText) {
+        line += `    > "${item.sourceText}"\n`;
+      }
+      return line;
+    };
+    report += `- S1 (Representativeness):\n${formatItem(s.representativeness)}`;
+    report += `- S2 (Non-exposed selection):\n${formatItem(s.selectionOfNonExposed)}`;
+    report += `- S3 (Exposure ascertainment):\n${formatItem(s.ascertainmentOfExposure)}`;
+    report += `- S4 (Outcome not at start):\n${formatItem(s.outcomeNotPresentAtStart)}`;
+  } else {
+    report += `- Score: ${data.quality.selectionScore}/4\n`;
+  }
+
+  // Comparability Domain
+  report += `\n#### Comparability (${data.quality.comparabilityScore}/2)\n`;
+  if (data.quality.comparability) {
+    const c = data.quality.comparability;
+    const formatItem = (item: {score: number; justification: string; sourceText?: string | null; pageNumber?: number | null}) => {
+      const star = item.score === 1 ? "★" : "☆";
+      const page = item.pageNumber ? ` (p.${item.pageNumber})` : "";
+      let line = `  ${star} ${item.justification}${page}\n`;
+      if (item.sourceText) {
+        line += `    > "${item.sourceText}"\n`;
+      }
+      return line;
+    };
+    report += `- C1 (Most important factor):\n${formatItem(c.controlForMostImportant)}`;
+    report += `- C2 (Additional factor):\n${formatItem(c.controlForAdditional)}`;
+  } else {
+    report += `- Score: ${data.quality.comparabilityScore}/2\n`;
+  }
+
+  // Outcome Domain
+  report += `\n#### Outcome (${data.quality.outcomeScore}/3)\n`;
+  if (data.quality.outcome) {
+    const o = data.quality.outcome;
+    const formatItem = (item: {score: number; justification: string; sourceText?: string | null; pageNumber?: number | null}) => {
+      const star = item.score === 1 ? "★" : "☆";
+      const page = item.pageNumber ? ` (p.${item.pageNumber})` : "";
+      let line = `  ${star} ${item.justification}${page}\n`;
+      if (item.sourceText) {
+        line += `    > "${item.sourceText}"\n`;
+      }
+      return line;
+    };
+    report += `- O1 (Outcome assessment):\n${formatItem(o.assessmentOfOutcome)}`;
+    report += `- O2 (Follow-up length):\n${formatItem(o.followUpLength)}`;
+    report += `- O3 (Follow-up adequacy):\n${formatItem(o.adequacyOfFollowUp)}`;
+  } else {
+    report += `- Score: ${data.quality.outcomeScore}/3\n`;
+  }
+
+  report += `\n#### Bias Summary\n`;
+  report += `${data.quality.biasNotes}\n`;
 
   return report;
 }
@@ -286,6 +432,7 @@ export function formatVerificationReport(data: CerebellarSDCData): string {
 /**
  * Metadata Agent - Extracts study identification info
  * Focuses on: Title, authors, journal, hospital, study period
+ * Uses Dotprompt template: prompts/extractMetadata.prompt
  */
 const extractMetadata = ai.defineFlow(
   {
@@ -294,29 +441,16 @@ const extractMetadata = ai.defineFlow(
     outputSchema: StudyMetadataSchema,
   },
   async ({pdfText}) => {
-    const {output} = await ai.generate({
-      prompt: `You are extracting study metadata from a medical research paper on cerebellar stroke surgery.
-
-Focus on the TITLE, ABSTRACT, and AUTHOR AFFILIATIONS sections.
-
-Extract:
-- Title, first author name, publication year
-- Journal name
-- Hospital/institution where the study was conducted
-- Study period (data collection dates)
-- Study design type
-
-STUDY TEXT:
-${pdfText.slice(0, 15000)}`, // First ~15k chars usually contain metadata
-      output: {schema: StudyMetadataSchema},
-    });
-    return output!;
+    const metadataPrompt = ai.prompt("extractMetadata");
+    const {output} = await metadataPrompt({pdfText: pdfText.slice(0, 15000)});
+    return output as z.infer<typeof StudyMetadataSchema>;
   }
 );
 
 /**
  * Population Agent - Extracts patient demographics and characteristics
  * Focuses on: Methods section, Table 1 (patient characteristics)
+ * Uses Dotprompt template: prompts/extractPopulation.prompt
  */
 const extractPopulation = ai.defineFlow(
   {
@@ -325,33 +459,16 @@ const extractPopulation = ai.defineFlow(
     outputSchema: PopulationSchema,
   },
   async ({pdfText}) => {
-    const {output} = await ai.generate({
-      prompt: `You are extracting POPULATION data from a medical study on Suboccipital Decompressive Craniectomy (SDC).
-
-Focus on the METHODS section and TABLE 1 (Baseline Characteristics).
-
-Extract:
-- Sample size (number of SDC patients)
-- Age demographics (mean, SD, range) with source quotes
-- GCS scores (admission and pre-operative) with source quotes
-- Hydrocephalus percentage with source quote
-- Primary diagnosis
-- Inclusion/exclusion criteria
-
-CRITICAL: For every value, provide the verbatim quote from the text in 'sourceText'.
-If a value is not stated, return null (do not calculate or estimate).
-
-STUDY TEXT:
-${pdfText}`,
-      output: {schema: PopulationSchema},
-    });
-    return output!;
+    const populationPrompt = ai.prompt("extractPopulation");
+    const {output} = await populationPrompt({pdfText});
+    return output as z.infer<typeof PopulationSchema>;
   }
 );
 
 /**
  * Intervention Agent - Extracts surgical procedure details
  * Focuses on: Methods section, Surgical Technique descriptions
+ * Uses Dotprompt template: prompts/extractIntervention.prompt
  */
 const extractIntervention = ai.defineFlow(
   {
@@ -360,32 +477,15 @@ const extractIntervention = ai.defineFlow(
     outputSchema: InterventionSchema,
   },
   async ({pdfText}) => {
-    const {output} = await ai.generate({
-      prompt: `You are extracting INTERVENTION data from a medical study on Suboccipital Decompressive Craniectomy (SDC).
-
-Focus on the METHODS section, particularly "Surgical Technique" or "Operative Procedure" subsections.
-
-Extract:
-- Procedure name and description
-- Surgical technique details (craniectomy extent, C1 removal, etc.) with source quote
-- EVD (External Ventricular Drain) usage with source quote
-- Duraplasty performed with source quote
-- Time from symptom onset to surgery with source quote
-- Any additional procedural details
-
-CRITICAL: For every value, provide the verbatim quote from the text in 'sourceText'.
-If a value is not stated, return null.
-
-STUDY TEXT:
-${pdfText}`,
-      output: {schema: InterventionSchema},
-    });
-    return output!;
+    const interventionPrompt = ai.prompt("extractIntervention");
+    const {output} = await interventionPrompt({pdfText});
+    return output as z.infer<typeof InterventionSchema>;
   }
 );
 
 /**
  * Comparator Agent - Extracts control group information
+ * Uses Dotprompt template: prompts/extractComparator.prompt
  */
 const extractComparator = ai.defineFlow(
   {
@@ -394,30 +494,16 @@ const extractComparator = ai.defineFlow(
     outputSchema: ComparatorSchema,
   },
   async ({pdfText}) => {
-    const {output} = await ai.generate({
-      prompt: `You are checking if this medical study has a COMPARATOR/CONTROL group.
-
-Look for:
-- Comparison groups (medical management only, EVD only, other surgery)
-- Matched cohorts
-- Historical controls
-
-If NO comparator exists (single-arm study), return:
-{ exists: false, type: "None", description: null, sampleSize: null }
-
-If a comparator EXISTS, describe it fully.
-
-STUDY TEXT:
-${pdfText}`,
-      output: {schema: ComparatorSchema},
-    });
-    return output!;
+    const comparatorPrompt = ai.prompt("extractComparator");
+    const {output} = await comparatorPrompt({pdfText});
+    return output as z.infer<typeof ComparatorSchema>;
   }
 );
 
 /**
  * Outcomes Agent - Extracts all clinical outcomes
  * Focuses on: Results section, Tables 2+, Discussion
+ * Uses Dotprompt template: prompts/extractOutcomes.prompt
  */
 const extractOutcomes = ai.defineFlow(
   {
@@ -426,35 +512,17 @@ const extractOutcomes = ai.defineFlow(
     outputSchema: OutcomesSchema,
   },
   async ({pdfText}) => {
-    const {output} = await ai.generate({
-      prompt: `You are extracting OUTCOMES data from a medical study on Suboccipital Decompressive Craniectomy (SDC).
-
-Focus on the RESULTS section, TABLES (especially outcome tables), and DISCUSSION.
-
-Extract:
-- Mortality rate with timepoint (in-hospital, 30-day, 6-month, etc.) with source quote
-- mRS (modified Rankin Scale) favorable outcome with definition (mRS 0-2 or 0-3?) with source quote
-- Length of hospital stay with source quote
-- All complications reported
-- ALL outcome measures in the study (GOS, NIHSS, ICU stay, etc.)
-
-CRITICAL RULES:
-1. For every value, provide the VERBATIM QUOTE from the text in 'sourceText'
-2. Always note the TIMEPOINT for outcome measurement
-3. For mRS, always specify the DEFINITION of "favorable" (0-2 vs 0-3)
-4. If a value is not stated, return null
-
-STUDY TEXT:
-${pdfText}`,
-      output: {schema: OutcomesSchema},
-    });
-    return output!;
+    const outcomesPrompt = ai.prompt("extractOutcomes");
+    const {output} = await outcomesPrompt({pdfText});
+    return output as z.infer<typeof OutcomesSchema>;
   }
 );
 
 /**
  * Quality Agent - Assesses study quality using Newcastle-Ottawa Scale
+ * Enhanced with item-by-item scoring and detailed guidance
  * Focuses on: Methods, Results, entire paper for bias assessment
+ * Uses Dotprompt template: prompts/extractQuality.prompt
  */
 const extractQuality = ai.defineFlow(
   {
@@ -463,44 +531,31 @@ const extractQuality = ai.defineFlow(
     outputSchema: QualitySchema,
   },
   async ({pdfText}) => {
-    const {output} = await ai.generate({
-      prompt: `You are assessing the METHODOLOGICAL QUALITY of a medical study using the Newcastle-Ottawa Scale (NOS).
-
-NEWCASTLE-OTTAWA SCALE for Cohort Studies:
-
-SELECTION (max 4 stars):
-1. Representativeness of exposed cohort (1 star if truly representative)
-2. Selection of non-exposed cohort (1 star if from same community)
-3. Ascertainment of exposure (1 star if secure record/structured interview)
-4. Outcome not present at start (1 star if demonstrated)
-
-COMPARABILITY (max 2 stars):
-1. Comparability based on design/analysis (1 star for controlling most important factor)
-2. Additional factor controlled (1 star for additional factor)
-
-OUTCOME (max 3 stars):
-1. Assessment of outcome (1 star if independent blind assessment or record linkage)
-2. Follow-up long enough (1 star if adequate for outcome)
-3. Adequacy of follow-up (1 star if complete or unlikely to introduce bias)
-
-Provide scores for each section and a total score (0-9).
-Also note any specific biases: selection bias, attrition bias, detection bias, reporting bias.
-
-STUDY TEXT:
-${pdfText}`,
-      output: {schema: QualitySchema},
-    });
-    return output!;
+    const qualityPrompt = ai.prompt("extractQuality");
+    const {output} = await qualityPrompt({pdfText});
+    return output as z.infer<typeof QualitySchema>;
   }
 );
 
 // ==========================================
-// 4. Orchestrator Flow (Parallel Execution)
+// 4. Orchestrator Flow (Parallel Execution with Streaming)
 // ==========================================
+
+/**
+ * Progress update schema for streaming extraction status
+ */
+const ExtractionProgressSchema = z.object({
+  agent: z.string().describe("Name of the agent reporting progress"),
+  status: z.enum(["started", "completed", "error"]).describe("Current status"),
+  progress: z.number().min(0).max(1).describe("Overall progress 0-1"),
+  message: z.string().optional().describe("Optional status message"),
+  timestamp: z.string().describe("ISO timestamp of this update"),
+});
 
 /**
  * Main extraction flow - orchestrates parallel agent execution
  * Uses the Worker Pattern for improved accuracy and speed
+ * Now with streaming progress updates for better UX
  */
 export const extractStudyData = ai.defineFlow(
   {
@@ -509,21 +564,93 @@ export const extractStudyData = ai.defineFlow(
       pdfText: z.string().describe("The raw text content of the medical PDF"),
     }),
     outputSchema: CerebellarSDCSchema,
+    streamSchema: ExtractionProgressSchema,
   },
-  async ({pdfText}) => {
+  async ({pdfText}, {sendChunk}) => {
     console.log("🔄 Dispatching to specialized extraction agents...");
 
-    // Run all agents in parallel for speed
+    const agents = [
+      {name: "metadata", fn: extractMetadata, weight: 0.1},
+      {name: "population", fn: extractPopulation, weight: 0.2},
+      {name: "intervention", fn: extractIntervention, weight: 0.15},
+      {name: "comparator", fn: extractComparator, weight: 0.1},
+      {name: "outcomes", fn: extractOutcomes, weight: 0.25},
+      {name: "quality", fn: extractQuality, weight: 0.2},
+    ];
+
+    // Track completion
+    const completed: Set<string> = new Set();
+    let currentProgress = 0;
+
+    // Send initial progress
+    sendChunk({
+      agent: "orchestrator",
+      status: "started",
+      progress: 0,
+      message: "Starting extraction with 6 specialized agents...",
+      timestamp: new Date().toISOString(),
+    });
+
+    // Helper to run agent and report progress
+    const runWithProgress = async <T>(
+      agentName: string,
+      agentFn: (input: {pdfText: string}) => Promise<T>,
+      weight: number
+    ): Promise<T> => {
+      sendChunk({
+        agent: agentName,
+        status: "started",
+        progress: currentProgress,
+        message: `${agentName} agent analyzing PDF...`,
+        timestamp: new Date().toISOString(),
+      });
+
+      try {
+        const result = await agentFn({pdfText});
+        completed.add(agentName);
+        currentProgress += weight;
+
+        sendChunk({
+          agent: agentName,
+          status: "completed",
+          progress: Math.min(currentProgress, 0.95), // Reserve 5% for aggregation
+          message: `${agentName} extraction complete`,
+          timestamp: new Date().toISOString(),
+        });
+
+        return result;
+      } catch (error) {
+        sendChunk({
+          agent: agentName,
+          status: "error",
+          progress: currentProgress,
+          message: `${agentName} failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+          timestamp: new Date().toISOString(),
+        });
+        throw error;
+      }
+    };
+
+    // Run all agents in parallel for speed with progress tracking
     const [metadata, population, intervention, comparator, outcomes, quality] = await Promise.all([
-      extractMetadata({pdfText}),
-      extractPopulation({pdfText}),
-      extractIntervention({pdfText}),
-      extractComparator({pdfText}),
-      extractOutcomes({pdfText}),
-      extractQuality({pdfText}),
+      runWithProgress("metadata", extractMetadata, 0.1),
+      runWithProgress("population", extractPopulation, 0.2),
+      runWithProgress("intervention", extractIntervention, 0.15),
+      runWithProgress("comparator", extractComparator, 0.1),
+      runWithProgress("outcomes", extractOutcomes, 0.25),
+      runWithProgress("quality", extractQuality, 0.2),
     ]);
 
     console.log("✅ All agents completed. Aggregating results...");
+
+    // Send final aggregation progress
+    sendChunk({
+      agent: "orchestrator",
+      status: "completed",
+      progress: 1,
+      message: "All 6 agents completed. Results aggregated successfully.",
+      timestamp: new Date().toISOString(),
+    });
 
     // Aggregate results into master schema
     const fullRecord: CerebellarSDCData = {
@@ -539,6 +666,445 @@ export const extractStudyData = ai.defineFlow(
   }
 );
 
+// ==========================================
+// 5. Figure Analysis Flow (Vision-based)
+// ==========================================
+
+/**
+ * Schema for extracted figure data
+ */
+const FigureDataSchema = z.object({
+  figureType: z.enum([
+    "flowchart",
+    "bar_chart",
+    "line_graph",
+    "scatter_plot",
+    "table",
+    "kaplan_meier",
+    "forest_plot",
+    "box_plot",
+    "histogram",
+    "pie_chart",
+    "anatomical_diagram",
+    "ct_scan",
+    "mri",
+    "other",
+  ]).describe("Type of figure detected"),
+  caption: z.string().nullable().describe("Figure caption if visible"),
+  title: z.string().nullable().describe("Figure title or label"),
+  description: z.string().describe("Detailed description of what the figure shows"),
+  extractedData: z.array(z.object({
+    label: z.string(),
+    value: z.string(),
+    unit: z.string().optional(),
+    confidence: z.number().min(0).max(1),
+  })).describe("Structured data extracted from the figure"),
+  axisLabels: z.object({
+    xAxis: z.string().nullable(),
+    yAxis: z.string().nullable(),
+  }).optional().describe("Axis labels for charts/graphs"),
+  legend: z.array(z.string()).optional().describe("Legend items"),
+  clinicalRelevance: z.string().optional().describe("Clinical significance of the figure for SDC research"),
+  sourceEvidence: z.string().describe("Key text/numbers visible in the figure"),
+});
+
+/**
+ * Input schema for figure analysis
+ */
+const FigureAnalysisInputSchema = z.object({
+  imageBase64: z.string().describe("Base64 encoded image data"),
+  mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]).default("image/png"),
+  context: z.string().optional().describe("Optional context about the figure (e.g., surrounding text)"),
+  extractionFocus: z.enum([
+    "general",
+    "patient_flow",
+    "outcomes",
+    "survival",
+    "statistical",
+    "imaging",
+  ]).default("general").describe("What type of data to focus on extracting"),
+});
+
+/**
+ * Figure Analysis Flow
+ * Uses Gemini's vision capabilities to analyze medical figures, charts, and tables
+ * Extracts structured data from images for systematic review inclusion
+ */
+export const analyzeFigure = ai.defineFlow(
+  {
+    name: "analyzeFigure",
+    inputSchema: FigureAnalysisInputSchema,
+    outputSchema: FigureDataSchema,
+  },
+  async ({imageBase64, mimeType, context, extractionFocus}) => {
+    console.log(`🔬 Analyzing figure with focus: ${extractionFocus}`);
+
+    const focusInstructions: Record<string, string> = {
+      general: "Extract all visible data, labels, and values comprehensively.",
+      patient_flow: "Focus on patient numbers at each stage: screened, excluded, enrolled, analyzed, lost to follow-up.",
+      outcomes: "Focus on outcome measures: mortality rates, mRS scores, complications, recovery rates.",
+      survival: "Focus on survival curves: median survival, hazard ratios, confidence intervals, p-values.",
+      statistical: "Focus on statistical measures: odds ratios, confidence intervals, p-values, correlations.",
+      imaging: "Focus on imaging findings: lesion volumes, locations, measurements in cm³ or mm.",
+    };
+
+    const prompt = `You are a medical research data extractor analyzing a figure from a cerebellar stroke surgery study.
+
+CONTEXT: ${context || "Figure from a medical research paper about suboccipital decompressive craniectomy (SDC)"}
+
+EXTRACTION FOCUS: ${focusInstructions[extractionFocus]}
+
+ANALYZE THIS FIGURE AND EXTRACT:
+1. Figure Type: Identify what kind of visualization this is
+2. All visible text: Labels, titles, captions, legends
+3. Numerical data: Extract ALL numbers with their labels and units
+4. For charts/graphs: Axis labels, data points, trend descriptions
+5. For flowcharts: Each box/step with patient numbers
+6. For tables: All rows and columns as structured data
+7. Clinical relevance to SDC research
+
+IMPORTANT:
+- Be precise with numbers - don't round or estimate
+- Include confidence score (0-1) for each extracted value
+- Note any values that are partially visible or unclear
+- For Kaplan-Meier curves, extract survival percentages at key timepoints
+
+Return structured JSON matching the output schema.`;
+
+    try {
+      const response = await ai.generate({
+        model: googleAI.model("gemini-3-pro-preview"),
+        prompt: [
+          {text: prompt},
+          {media: {contentType: mimeType, url: `data:${mimeType};base64,${imageBase64}`}},
+        ],
+        output: {schema: FigureDataSchema},
+      });
+
+      const result = response.output;
+      if (!result) {
+        throw new Error("No output from figure analysis");
+      }
+
+      console.log(`✅ Extracted ${result.extractedData.length} data points from ${result.figureType}`);
+      return result;
+    } catch (error) {
+      console.error("Figure analysis failed:", error);
+      // Return minimal result on error
+      return {
+        figureType: "other" as const,
+        caption: null,
+        title: null,
+        description: "Analysis failed - unable to process image",
+        extractedData: [],
+        sourceEvidence: "",
+      };
+    }
+  }
+);
+
+/**
+ * Batch Figure Analysis Flow
+ * Analyzes multiple figures from a PDF in parallel
+ */
+export const analyzeFigures = ai.defineFlow(
+  {
+    name: "analyzeFigures",
+    inputSchema: z.object({
+      figures: z.array(FigureAnalysisInputSchema),
+      concurrency: z.number().default(3).describe("Number of parallel analyses"),
+    }),
+    outputSchema: z.object({
+      results: z.array(FigureDataSchema),
+      summary: z.object({
+        total: z.number(),
+        successful: z.number(),
+        byType: z.record(z.number()),
+      }),
+    }),
+  },
+  async ({figures, concurrency}) => {
+    console.log(`📊 Analyzing ${figures.length} figures with concurrency ${concurrency}`);
+
+    const limit = pLimit(concurrency);
+    const results: z.infer<typeof FigureDataSchema>[] = [];
+    const typeCount: Record<string, number> = {};
+
+    const tasks = figures.map((figure, idx) =>
+      limit(async () => {
+        console.log(`Processing figure ${idx + 1}/${figures.length}...`);
+        const result = await analyzeFigure(figure);
+        results.push(result);
+
+        // Count by type
+        typeCount[result.figureType] = (typeCount[result.figureType] || 0) + 1;
+
+        return result;
+      })
+    );
+
+    await Promise.all(tasks);
+
+    const successful = results.filter(r => r.extractedData.length > 0).length;
+
+    console.log(`✅ Batch analysis complete: ${successful}/${figures.length} successful`);
+
+    return {
+      results,
+      summary: {
+        total: figures.length,
+        successful,
+        byType: typeCount,
+      },
+    };
+  }
+);
+
+// ==========================================
+// 7b. Mistral OCR Flows (High-Accuracy Table/Figure Extraction)
+// ==========================================
+
+/**
+ * Extract tables and figures from PDF using Mistral OCR
+ * 96.12% table accuracy, 94.29% math comprehension
+ * Cost: $0.001/page, Speed: 2,000 pages/minute
+ */
+export const extractWithMistralOCR = ai.defineFlow(
+  {
+    name: "extractWithMistralOCR",
+    inputSchema: z.object({
+      pdfPath: z.string().optional().describe("Local path to PDF file"),
+      pdfBase64: z.string().optional().describe("Base64-encoded PDF"),
+      pdfUrl: z.string().optional().describe("URL to publicly accessible PDF"),
+      includeFigureAnalysis: z.boolean().default(true),
+      includeTableParsing: z.boolean().default(true),
+    }),
+    outputSchema: MistralOCRResultSchema,
+  },
+  async ({pdfPath, pdfBase64, pdfUrl, includeFigureAnalysis, includeTableParsing}) => {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY not configured. Add it to .env file.");
+    }
+
+    console.log("🔍 Starting Mistral OCR extraction...");
+
+    const result = await mistralOCR.extract(
+      {pdfPath, pdfBase64, pdfUrl},
+      {includeFigureAnalysis, includeTableParsing}
+    );
+
+    console.log(`✅ Mistral OCR complete: ${result.tables.length} tables, ${result.figures.length} figures`);
+    console.log(`   Processing time: ${result.metadata.processingTimeMs}ms`);
+
+    return result;
+  }
+);
+
+/**
+ * Extract only tables from PDF using Mistral OCR (faster, no figure analysis)
+ */
+export const extractTablesWithMistral = ai.defineFlow(
+  {
+    name: "extractTablesWithMistral",
+    inputSchema: z.object({
+      pdfPath: z.string().optional(),
+      pdfBase64: z.string().optional(),
+      pdfUrl: z.string().optional(),
+    }),
+    outputSchema: z.array(ExtractedTableSchema),
+  },
+  async (input) => {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY not configured. Add it to .env file.");
+    }
+
+    console.log("📊 Extracting tables with Mistral OCR...");
+    const tables = await mistralOCR.extractTables(input);
+    console.log(`✅ Found ${tables.length} tables`);
+
+    // Log table types for debugging
+    const typeCount: Record<string, number> = {};
+    tables.forEach((t) => {
+      const type = t.tableType || "other";
+      typeCount[type] = (typeCount[type] || 0) + 1;
+    });
+    console.log("   Table types:", typeCount);
+
+    return tables;
+  }
+);
+
+/**
+ * Extract figures with structured data using Mistral BBox annotations
+ */
+export const extractFiguresWithMistral = ai.defineFlow(
+  {
+    name: "extractFiguresWithMistral",
+    inputSchema: z.object({
+      pdfPath: z.string().optional(),
+      pdfBase64: z.string().optional(),
+      pdfUrl: z.string().optional(),
+    }),
+    outputSchema: z.array(ExtractedFigureSchema),
+  },
+  async (input) => {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY not configured. Add it to .env file.");
+    }
+
+    console.log("📈 Extracting figures with Mistral OCR...");
+    const figures = await mistralOCR.extractFigures(input);
+    console.log(`✅ Found ${figures.length} figures`);
+
+    return figures;
+  }
+);
+
+/**
+ * Map extracted table to CerebellarSDCSchema fields
+ * Returns field paths and values for "Use in Form" functionality
+ */
+export const mapTableToSchema = ai.defineFlow(
+  {
+    name: "mapTableToSchema",
+    inputSchema: ExtractedTableSchema,
+    outputSchema: z.array(
+      z.object({
+        field: z.string().describe("Schema field path (e.g., 'population.age.mean.value')"),
+        value: z.any().describe("Extracted value"),
+        sourceText: z.string().describe("Source text from table cell"),
+      })
+    ),
+  },
+  async (table) => {
+    console.log(`🔗 Mapping table (${table.tableType}) to schema fields...`);
+    const mappings = mapTableToSchemaFields(table);
+    console.log(`✅ Found ${mappings.length} mappable fields`);
+    return mappings;
+  }
+);
+
+/**
+ * Semantic table analysis using Gemini for complex tables
+ * Understands context and can extract fields that simple parsing misses
+ */
+export const analyzeTableSemantically = ai.defineFlow(
+  {
+    name: "analyzeTableSemantically",
+    inputSchema: z.object({
+      markdownTable: z.string().describe("Table in markdown format"),
+      caption: z.string().optional(),
+      context: z.string().optional().describe("Surrounding text context"),
+    }),
+    outputSchema: z.object({
+      tableType: z.enum([
+        "demographics",
+        "baseline",
+        "outcomes",
+        "complications",
+        "flowchart",
+        "statistical",
+        "imaging",
+        "surgical",
+        "other",
+      ]),
+      extractedFields: z.array(
+        z.object({
+          field: z.string().describe("Schema field path"),
+          value: z.any(),
+          confidence: z.number().min(0).max(1),
+          sourceCell: z.string(),
+          reasoning: z.string().optional(),
+        })
+      ),
+      studyArmDetected: z
+        .object({
+          label: z.string(),
+          sampleSize: z.number().nullable(),
+          description: z.string().nullable(),
+        })
+        .nullable()
+        .describe("If this table represents a study arm/group"),
+      warnings: z.array(z.string()).describe("Potential issues or ambiguities"),
+    }),
+  },
+  async ({markdownTable, caption, context}) => {
+    console.log("🧠 Analyzing table semantically with Gemini...");
+
+    const prompt = `You are a medical research data extraction expert specializing in cerebellar stroke and suboccipital decompressive craniectomy (SDC) studies.
+
+Analyze this table and extract relevant data fields for our CerebellarSDCSchema.
+
+${caption ? `Table Caption: ${caption}` : ""}
+${context ? `Context: ${context}` : ""}
+
+Table:
+${markdownTable}
+
+Schema fields to look for:
+- population.sampleSize: Total N
+- population.age.mean/sd: Age statistics
+- population.gcs.median/range: Glasgow Coma Scale
+- population.hydrocephalus.percentage: % with hydrocephalus
+- intervention.technique: Surgical technique description
+- intervention.evdUsed: Whether EVD was used
+- intervention.duraplasty: Whether duraplasty was performed
+- outcomes.mortality: Mortality rate/count
+- outcomes.mRS_favorable: % with favorable mRS (0-2 or 0-3)
+- outcomes.lengthOfStay: ICU/hospital stay
+- outcomes.complications: List of complications
+
+Respond with structured JSON containing:
+1. tableType: The category of this table
+2. extractedFields: Array of {field, value, confidence, sourceCell, reasoning}
+3. studyArmDetected: If this table represents a treatment group, provide label/size/description
+4. warnings: Any ambiguities or potential issues`;
+
+    const response = await ai.generate({
+      model: "googleai/gemini-3-pro-preview",
+      prompt,
+      output: {
+        format: "json",
+        schema: z.object({
+          tableType: z.enum([
+            "demographics",
+            "baseline",
+            "outcomes",
+            "complications",
+            "flowchart",
+            "statistical",
+            "imaging",
+            "surgical",
+            "other",
+          ]),
+          extractedFields: z.array(
+            z.object({
+              field: z.string(),
+              value: z.any(),
+              confidence: z.number(),
+              sourceCell: z.string(),
+              reasoning: z.string().optional(),
+            })
+          ),
+          studyArmDetected: z
+            .object({
+              label: z.string(),
+              sampleSize: z.number().nullable(),
+              description: z.string().nullable(),
+            })
+            .nullable(),
+          warnings: z.array(z.string()),
+        }),
+      },
+    });
+
+    const result = response.output!;
+    console.log(`✅ Semantic analysis complete: ${result.extractedFields.length} fields extracted`);
+
+    return result;
+  }
+);
+
 /**
  * Check for duplicates and save to database
  * Uses semantic matching to detect overlapping cohorts
@@ -547,16 +1113,61 @@ export const extractStudyData = ai.defineFlow(
 export const checkAndSaveStudy = ai.defineFlow(
   {
     name: "checkAndSaveStudy",
-    inputSchema: CerebellarSDCSchema,
+    inputSchema: z.object({
+      extractedData: CerebellarSDCSchema,
+      pdfText: z.string().optional().describe("Full PDF text for critique validation"),
+      runCritique: z.boolean().default(false).describe("Whether to run critique validation"),
+      critiqueMode: z.enum(["AUTO", "REVIEW"]).default("REVIEW").describe("Critique mode: AUTO (auto-correct) or REVIEW (manual review)"),
+    }),
     outputSchema: z.object({
-      status: z.enum(["saved", "flagged_duplicate", "error"]),
+      status: z.enum(["saved", "flagged_duplicate", "failed_critique", "error"]),
       docId: z.string().nullable(),
       duplicateReport: DuplicateAssessmentSchema.nullable(),
+      critiqueReport: CritiqueReportSchema.nullable(),
       message: z.string(),
     }),
   },
-  async (extractedData) => {
+  async ({extractedData, pdfText, runCritique, critiqueMode}) => {
     try {
+      // 0. Run critique validation if requested
+      let critiqueReport = null;
+      let dataToSave = extractedData;
+
+      if (runCritique) {
+        console.log(`Running critique validation in ${critiqueMode} mode...`);
+        critiqueReport = await critiqueExtraction({
+          extractedData,
+          pdfText,
+          mode: critiqueMode,
+        });
+
+        // REVIEW mode: Block saving if validation fails
+        if (critiqueMode === "REVIEW" && !critiqueReport.passedValidation) {
+          return {
+            status: "failed_critique" as const,
+            docId: null,
+            duplicateReport: null,
+            critiqueReport,
+            message: `❌ Validation failed: ${critiqueReport.summary}. Please review and fix the ${critiqueReport.issues.filter(i => i.severity === "CRITICAL").length} CRITICAL issues.`,
+          };
+        }
+
+        // AUTO mode: Apply corrections to data
+        if (critiqueMode === "AUTO" && critiqueReport.corrections) {
+          console.log(`Applying ${Object.keys(critiqueReport.corrections).length} auto-corrections...`);
+          // Apply corrections to extractedData
+          dataToSave = {...extractedData};
+          Object.entries(critiqueReport.corrections).forEach(([fieldPath, value]) => {
+            const keys = fieldPath.split(".");
+            let current: any = dataToSave;
+            for (let i = 0; i < keys.length - 1; i++) {
+              current = current[keys[i]];
+            }
+            current[keys[keys.length - 1]] = value;
+          });
+        }
+      }
+
       // 1. Fetch existing studies metadata
       let existingStudies: Array<{
         id: string;
@@ -602,7 +1213,7 @@ export const checkAndSaveStudy = ai.defineFlow(
           const studies = loadLocalStudies();
           studies.push({
             id: docId,
-            data: extractedData,
+            data: dataToSave,
             createdAt: new Date().toISOString(),
           });
           saveLocalStudies(studies);
@@ -612,10 +1223,10 @@ export const checkAndSaveStudy = ai.defineFlow(
             await ai.index({
               indexer: "devLocalVectorstore/studyIndex",
               documents: [
-                Document.fromText(JSON.stringify(extractedData), {
+                Document.fromText(JSON.stringify(dataToSave), {
                   id: docId,
-                  firstAuthor: extractedData.metadata.firstAuthor,
-                  hospital: extractedData.metadata.hospitalCenter,
+                  firstAuthor: dataToSave.metadata.firstAuthor,
+                  hospital: dataToSave.metadata.hospitalCenter,
                 }),
               ],
             });
@@ -626,7 +1237,7 @@ export const checkAndSaveStudy = ai.defineFlow(
           const firestore = await getFirestoreDb();
           const {FieldValue} = await import("firebase-admin/firestore");
           await firestore.collection("studies").doc(docId).set({
-            ...extractedData,
+            ...dataToSave,
             createdAt: FieldValue.serverTimestamp(),
           });
         }
@@ -634,6 +1245,7 @@ export const checkAndSaveStudy = ai.defineFlow(
           status: "saved" as const,
           docId,
           duplicateReport: null,
+          critiqueReport,
           message: `First study added to database (${USE_LOCAL_STORAGE ? "local" : "Firestore"}).`,
         };
       }
@@ -651,11 +1263,11 @@ CRITERIA FOR DUPLICATE/OVERLAP:
 
 ---
 NEW STUDY:
-- Center: ${extractedData.metadata.hospitalCenter}
-- Period: ${extractedData.metadata.studyPeriod}
-- First Author: ${extractedData.metadata.firstAuthor}
-- Year: ${extractedData.metadata.publicationYear}
-- Sample Size: ${extractedData.population.sampleSize}
+- Center: ${dataToSave.metadata.hospitalCenter}
+- Period: ${dataToSave.metadata.studyPeriod}
+- First Author: ${dataToSave.metadata.firstAuthor}
+- Year: ${dataToSave.metadata.publicationYear}
+- Sample Size: ${dataToSave.population.sampleSize}
 ---
 EXISTING STUDIES IN DATABASE:
 ${JSON.stringify(existingStudies, null, 2)}
@@ -674,6 +1286,7 @@ Analyze carefully and return your assessment.`,
           status: "flagged_duplicate" as const,
           docId: null,
           duplicateReport: assessment,
+          critiqueReport,
           message: `⚠️ Potential duplicate detected (${assessment.confidence} confidence): ${assessment.reasoning}`,
         };
       }
@@ -684,7 +1297,7 @@ Analyze carefully and return your assessment.`,
         const studies = loadLocalStudies();
         studies.push({
           id: docId,
-          data: extractedData,
+          data: dataToSave,
           createdAt: new Date().toISOString(),
           duplicateCheck: assessment,
         });
@@ -695,10 +1308,10 @@ Analyze carefully and return your assessment.`,
           await ai.index({
             indexer: "devLocalVectorstore/studyIndex",
             documents: [
-              Document.fromText(JSON.stringify(extractedData), {
+              Document.fromText(JSON.stringify(dataToSave), {
                 id: docId,
-                firstAuthor: extractedData.metadata.firstAuthor,
-                hospital: extractedData.metadata.hospitalCenter,
+                firstAuthor: dataToSave.metadata.firstAuthor,
+                hospital: dataToSave.metadata.hospitalCenter,
               }),
             ],
           });
@@ -709,7 +1322,7 @@ Analyze carefully and return your assessment.`,
         const firestore = await getFirestoreDb();
         const {FieldValue} = await import("firebase-admin/firestore");
         await firestore.collection("studies").doc(docId).set({
-          ...extractedData,
+          ...dataToSave,
           duplicateCheck: assessment,
           createdAt: FieldValue.serverTimestamp(),
         });
@@ -719,6 +1332,7 @@ Analyze carefully and return your assessment.`,
         status: "saved" as const,
         docId,
         duplicateReport: assessment,
+        critiqueReport,
         message: `✅ Study saved with ID: ${docId} (${USE_LOCAL_STORAGE ? "local" : "Firestore"})`,
       };
     } catch (error) {
@@ -726,6 +1340,7 @@ Analyze carefully and return your assessment.`,
         status: "error" as const,
         docId: null,
         duplicateReport: null,
+        critiqueReport: null,
         message: `Error: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
@@ -827,6 +1442,229 @@ export const searchSimilarStudies = ai.defineFlow(
         content: doc.text.slice(0, 500) + "...",
         metadata: doc.metadata || {},
       })),
+    };
+  }
+);
+
+// ==========================================
+// 4b. RAG Chunking for Large PDFs
+// ==========================================
+
+/**
+ * Chunk PDF text for RAG indexing
+ * Uses semantic chunking to preserve context while respecting token limits
+ */
+export const chunkPdfText = ai.defineFlow(
+  {
+    name: "chunkPdfText",
+    inputSchema: z.object({
+      text: z.string().describe("Full PDF text to chunk"),
+      strategy: z.enum(["semantic", "medical", "fixed"]).default("medical").describe("Chunking strategy"),
+      options: PartialChunkingOptionsSchema.optional().describe("Chunking options"),
+    }),
+    outputSchema: z.object({
+      chunks: z.array(ChunkSchema),
+      totalChunks: z.number(),
+      averageTokens: z.number(),
+      strategy: z.string(),
+    }),
+  },
+  async ({text, strategy = "medical", options = {}}) => {
+    let chunks: Chunk[];
+
+    switch (strategy) {
+      case "medical":
+        // Best for research papers - preserves section structure
+        chunks = chunkMedicalPaper(text, options);
+        break;
+      case "semantic":
+        // General-purpose semantic chunking
+        chunks = semanticChunk(text, options);
+        break;
+      case "fixed":
+        // Simple fixed-size chunking (fallback)
+        const maxTokens = options.maxChunkSize ?? 1500;
+        const overlap = options.overlap ?? 200;
+        const { fixedSizeChunk } = await import("./chunking.js");
+        chunks = fixedSizeChunk(text, maxTokens, overlap);
+        break;
+      default:
+        chunks = chunkMedicalPaper(text, options);
+    }
+
+    const totalTokens = chunks.reduce((sum, c) => sum + (c.metadata.tokenCount || 0), 0);
+    const averageTokens = chunks.length > 0 ? Math.round(totalTokens / chunks.length) : 0;
+
+    return {
+      chunks,
+      totalChunks: chunks.length,
+      averageTokens,
+      strategy,
+    };
+  }
+);
+
+/**
+ * Index PDF chunks into vector store for RAG
+ * Creates multiple documents from chunked PDF for better retrieval
+ */
+export const indexChunkedPdf = ai.defineFlow(
+  {
+    name: "indexChunkedPdf",
+    inputSchema: z.object({
+      pdfPath: z.string().describe("Path to PDF file"),
+      studyId: z.string().describe("Study identifier for the PDF"),
+      strategy: z.enum(["semantic", "medical", "fixed"]).default("medical"),
+      options: PartialChunkingOptionsSchema.optional(),
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      chunksIndexed: z.number(),
+      studyId: z.string(),
+      message: z.string(),
+    }),
+  },
+  async ({pdfPath, studyId, strategy = "medical", options = {}}) => {
+    try {
+      // 1. Read and parse PDF
+      console.log(`📄 Reading PDF: ${pdfPath}`);
+      const pdfBuffer = fs.readFileSync(pdfPath);
+      const parsed = await parsePdf(pdfBuffer);
+
+      // 2. Chunk the text
+      console.log(`✂️  Chunking with ${strategy} strategy...`);
+      const {chunks, totalChunks, averageTokens} = await chunkPdfText({
+        text: parsed.text,
+        strategy,
+        options,
+      });
+      console.log(`   Created ${totalChunks} chunks (avg ${averageTokens} tokens)`);
+
+      // 3. Create documents from chunks
+      const documents = chunks.map((chunk, idx) => {
+        return Document.fromText(chunk.text, {
+          id: `${studyId}_chunk_${idx}`,
+          studyId,
+          chunkIndex: idx,
+          totalChunks,
+          pageStart: chunk.metadata.pageStart,
+          pageEnd: chunk.metadata.pageEnd,
+          sectionType: chunk.metadata.sectionType || "unknown",
+          tokenCount: chunk.metadata.tokenCount,
+        });
+      });
+
+      // 4. Index all chunks
+      console.log(`📥 Indexing ${documents.length} chunks...`);
+      await ai.index({
+        indexer: "devLocalVectorstore/studyIndex",
+        documents,
+      });
+
+      return {
+        success: true,
+        chunksIndexed: documents.length,
+        studyId,
+        message: `Successfully indexed ${documents.length} chunks from ${pdfPath}`,
+      };
+    } catch (error) {
+      console.error("Chunked indexing failed:", error);
+      return {
+        success: false,
+        chunksIndexed: 0,
+        studyId,
+        message: `Failed to index: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+);
+
+/**
+ * Search with chunked retrieval and context aggregation
+ * Retrieves relevant chunks and aggregates context for better answers
+ */
+export const searchWithContext = ai.defineFlow(
+  {
+    name: "searchWithContext",
+    inputSchema: z.object({
+      query: z.string().describe("Search query"),
+      limit: z.number().default(10).describe("Maximum chunks to retrieve"),
+      aggregateByStudy: z.boolean().default(true).describe("Group results by study"),
+    }),
+    outputSchema: z.object({
+      results: z.array(z.object({
+        studyId: z.string(),
+        chunks: z.array(z.object({
+          text: z.string(),
+          sectionType: z.string(),
+          relevanceScore: z.number(),
+          pageRange: z.string(),
+        })),
+        combinedContext: z.string(),
+      })),
+      totalChunksRetrieved: z.number(),
+    }),
+  },
+  async ({query, limit = 10, aggregateByStudy = true}) => {
+    // Retrieve chunks
+    const docs = await ai.retrieve({
+      retriever: "devLocalVectorstore/studyIndex",
+      query,
+      options: {k: limit},
+    });
+
+    if (!aggregateByStudy) {
+      // Return flat list
+      return {
+        results: docs.map(doc => ({
+          studyId: doc.metadata?.studyId as string || "unknown",
+          chunks: [{
+            text: doc.text,
+            sectionType: doc.metadata?.sectionType as string || "unknown",
+            relevanceScore: doc.metadata?.score as number || 0,
+            pageRange: `${doc.metadata?.pageStart || "?"}-${doc.metadata?.pageEnd || "?"}`,
+          }],
+          combinedContext: doc.text,
+        })),
+        totalChunksRetrieved: docs.length,
+      };
+    }
+
+    // Group by study
+    const byStudy = new Map<string, typeof docs>();
+    for (const doc of docs) {
+      const studyId = doc.metadata?.studyId as string || "unknown";
+      if (!byStudy.has(studyId)) {
+        byStudy.set(studyId, []);
+      }
+      byStudy.get(studyId)!.push(doc);
+    }
+
+    // Build aggregated results
+    const results = Array.from(byStudy.entries()).map(([studyId, studyDocs]) => {
+      // Sort by chunk index if available
+      studyDocs.sort((a, b) => {
+        const idxA = a.metadata?.chunkIndex as number || 0;
+        const idxB = b.metadata?.chunkIndex as number || 0;
+        return idxA - idxB;
+      });
+
+      const chunks = studyDocs.map(doc => ({
+        text: doc.text.slice(0, 500) + (doc.text.length > 500 ? "..." : ""),
+        sectionType: doc.metadata?.sectionType as string || "unknown",
+        relevanceScore: doc.metadata?.score as number || 0,
+        pageRange: `${doc.metadata?.pageStart || "?"}-${doc.metadata?.pageEnd || "?"}`,
+      }));
+
+      // Combine context from all chunks (deduplicated)
+      const combinedContext = studyDocs.map(d => d.text).join("\n\n---\n\n");
+
+      return {studyId, chunks, combinedContext};
+    });
+
+    return {
+      results,
+      totalChunksRetrieved: docs.length,
     };
   }
 );
@@ -960,30 +1798,18 @@ export const nosConsistencyEvaluator = ai.defineEvaluator(
 
     const {selectionScore, comparabilityScore, outcomeScore, totalScore} = output.quality;
 
-    // Validate ranges
-    const rangeValid =
-      selectionScore >= 0 && selectionScore <= 4 &&
-      comparabilityScore >= 0 && comparabilityScore <= 2 &&
-      outcomeScore >= 0 && outcomeScore <= 3 &&
-      totalScore >= 0 && totalScore <= 9;
-
-    // Validate total equals sum
-    const expectedTotal = selectionScore + comparabilityScore + outcomeScore;
-    const sumMatches = totalScore === expectedTotal;
-
-    let score = 0;
-    if (rangeValid) score += 0.5;
-    if (sumMatches) score += 0.5;
+    // Use shared validation utility
+    const validation = validateNosScores({selectionScore, comparabilityScore, outcomeScore, totalScore});
 
     return {
       testCaseId: datapoint.testCaseId,
       evaluation: {
-        score,
+        score: validation.score,
         details: {
-          rangeValid,
-          sumMatches,
-          expectedTotal,
-          actualTotal: totalScore,
+          rangeValid: validation.rangeValid,
+          sumMatches: validation.sumMatches,
+          expectedTotal: validation.expectedTotal,
+          actualTotal: validation.actualTotal,
           components: {selectionScore, comparabilityScore, outcomeScore},
         },
       },
@@ -1122,14 +1948,25 @@ export const evaluateExtraction = ai.defineFlow(
     function evaluateNosConsistency(output: CerebellarSDCData) {
       const quality = output.quality;
       if (!quality) return {score: 0, details: {reason: "No quality data"}};
+
       const {selectionScore, comparabilityScore, outcomeScore, totalScore} = quality;
-      const expectedTotal = (selectionScore || 0) + (comparabilityScore || 0) + (outcomeScore || 0);
-      const rangeValid = (selectionScore ?? 0) <= 4 && (comparabilityScore ?? 0) <= 2 && (outcomeScore ?? 0) <= 3;
-      const sumMatches = totalScore === expectedTotal;
-      let score = 0;
-      if (rangeValid) score += 0.5;
-      if (sumMatches) score += 0.5;
-      return {score, details: {rangeValid, sumMatches, expectedTotal, actualTotal: totalScore}};
+
+      // Use shared detailed validation utility (includes item-level checks)
+      const validation = validateNosScoresDetailed(
+        {selectionScore, comparabilityScore, outcomeScore, totalScore},
+        quality // Pass domains for item-level validation
+      );
+
+      return {
+        score: validation.score,
+        details: {
+          rangeValid: validation.rangeValid,
+          sumMatches: validation.sumMatches,
+          itemScoresMatch: validation.itemScoresMatch,
+          expectedTotal: validation.expectedTotal,
+          actualTotal: validation.actualTotal,
+        },
+      };
     }
 
     // Run all evaluations
@@ -1207,19 +2044,22 @@ export const evaluateExtraction = ai.defineFlow(
 
 /**
  * Flattens a VerifiableField into separate columns for CSV export
+ * Now includes pageNumber for "Jump to Source" functionality
  */
 function flattenVerifiable(
   flatData: Record<string, unknown>,
   prefix: string,
-  field: {value: unknown; sourceText: string | null} | undefined
+  field: {value: unknown; sourceText: string | null; pageNumber?: number | null} | undefined
 ) {
   if (!field) {
     flatData[`${prefix}`] = null;
     flatData[`${prefix}_Source`] = null;
+    flatData[`${prefix}_Page`] = null;
     return;
   }
   flatData[`${prefix}`] = field.value;
   flatData[`${prefix}_Source`] = field.sourceText;
+  flatData[`${prefix}_Page`] = field.pageNumber ?? null;
 }
 
 /**
@@ -1277,12 +2117,39 @@ export function flattenStudyData(study: CerebellarSDCData & {docId?: string}): R
     .map(o => `${o.measureName}@${o.timepoint}: ${o.resultValue}`)
     .join("; ");
 
-  // Quality Assessment (NOS)
+  // Quality Assessment (NOS) - Legacy fields
   flatData["NOS_Selection"] = study.quality.selectionScore;
   flatData["NOS_Comparability"] = study.quality.comparabilityScore;
   flatData["NOS_Outcome"] = study.quality.outcomeScore;
   flatData["NOS_Total"] = study.quality.totalScore;
+  flatData["NOS_Rating"] = study.quality.qualityRating || "Not rated";
   flatData["Bias_Notes"] = study.quality.biasNotes;
+
+  // Enhanced NOS item-level data (if available)
+  if (study.quality.selection) {
+    flatData["NOS_S1_Representativeness"] = study.quality.selection.representativeness?.score ?? null;
+    flatData["NOS_S1_Justification"] = study.quality.selection.representativeness?.justification ?? null;
+    flatData["NOS_S2_NonExposed"] = study.quality.selection.selectionOfNonExposed?.score ?? null;
+    flatData["NOS_S2_Justification"] = study.quality.selection.selectionOfNonExposed?.justification ?? null;
+    flatData["NOS_S3_Exposure"] = study.quality.selection.ascertainmentOfExposure?.score ?? null;
+    flatData["NOS_S3_Justification"] = study.quality.selection.ascertainmentOfExposure?.justification ?? null;
+    flatData["NOS_S4_OutcomeAtStart"] = study.quality.selection.outcomeNotPresentAtStart?.score ?? null;
+    flatData["NOS_S4_Justification"] = study.quality.selection.outcomeNotPresentAtStart?.justification ?? null;
+  }
+  if (study.quality.comparability) {
+    flatData["NOS_C1_MostImportant"] = study.quality.comparability.controlForMostImportant?.score ?? null;
+    flatData["NOS_C1_Justification"] = study.quality.comparability.controlForMostImportant?.justification ?? null;
+    flatData["NOS_C2_Additional"] = study.quality.comparability.controlForAdditional?.score ?? null;
+    flatData["NOS_C2_Justification"] = study.quality.comparability.controlForAdditional?.justification ?? null;
+  }
+  if (study.quality.outcome) {
+    flatData["NOS_O1_Assessment"] = study.quality.outcome.assessmentOfOutcome?.score ?? null;
+    flatData["NOS_O1_Justification"] = study.quality.outcome.assessmentOfOutcome?.justification ?? null;
+    flatData["NOS_O2_FollowUpLength"] = study.quality.outcome.followUpLength?.score ?? null;
+    flatData["NOS_O2_Justification"] = study.quality.outcome.followUpLength?.justification ?? null;
+    flatData["NOS_O3_FollowUpAdequacy"] = study.quality.outcome.adequacyOfFollowUp?.score ?? null;
+    flatData["NOS_O3_Justification"] = study.quality.outcome.adequacyOfFollowUp?.justification ?? null;
+  }
 
   return flatData;
 }
@@ -1414,10 +2281,11 @@ export const batchProcessPDFs = ai.defineFlow(
       processed: z.number(),
       saved: z.number(),
       duplicates: z.number(),
+      failedCritique: z.number(),
       errors: z.number(),
       results: z.array(z.object({
         filename: z.string(),
-        status: z.enum(["saved", "flagged_duplicate", "error"]),
+        status: z.enum(["saved", "flagged_duplicate", "failed_critique", "error"]),
         docId: z.string().nullable(),
         message: z.string(),
       })),
@@ -1444,7 +2312,7 @@ export const batchProcessPDFs = ai.defineFlow(
     // Process each PDF
     const results: Array<{
       filename: string;
-      status: "saved" | "flagged_duplicate" | "error";
+      status: "saved" | "flagged_duplicate" | "failed_critique" | "error";
       docId: string | null;
       message: string;
     }> = [];
@@ -1474,7 +2342,12 @@ export const batchProcessPDFs = ai.defineFlow(
 
         // Check for duplicates and save
         console.log(`   💾 Checking duplicates and saving ${filename}...`);
-        const saveResult = await checkAndSaveStudy(extractedData);
+        const saveResult = await checkAndSaveStudy({
+          extractedData,
+          pdfText,
+          runCritique: false, // Disable critique in batch mode by default
+          critiqueMode: "REVIEW",
+        });
 
         console.log(`   ✅ ${filename}: ${saveResult.status}`);
         return {
@@ -1503,6 +2376,7 @@ export const batchProcessPDFs = ai.defineFlow(
     // Calculate summary stats
     const saved = results.filter(r => r.status === "saved").length;
     const duplicates = results.filter(r => r.status === "flagged_duplicate").length;
+    const failedCritique = results.filter(r => r.status === "failed_critique").length;
     const errors = results.filter(r => r.status === "error").length;
 
     console.log(`\n========================================`);
@@ -1511,6 +2385,7 @@ export const batchProcessPDFs = ai.defineFlow(
     console.log(`   Total files: ${files.length}`);
     console.log(`   ✅ Saved: ${saved}`);
     console.log(`   ⚠️  Duplicates: ${duplicates}`);
+    console.log(`   🔍 Failed Critique: ${failedCritique}`);
     console.log(`   ❌ Errors: ${errors}`);
     console.log(`========================================\n`);
 
@@ -1519,152 +2394,27 @@ export const batchProcessPDFs = ai.defineFlow(
       processed: results.length,
       saved,
       duplicates,
+      failedCritique,
       errors,
       results,
     };
   }
 );
 
-/**
- * Conversation flow - for interactive collaboration with Gemini
- */
-export const chat = ai.defineFlow(
-  {
-    name: "chat",
-    inputSchema: z.object({
-      message: z.string().describe("Your message to Gemini"),
-      context: z.string().optional().describe("Optional context about current task"),
-    }),
-    outputSchema: z.object({
-      response: z.string(),
-    }),
-  },
-  async ({message, context}) => {
-    const systemContext = context || `You are collaborating with a medical researcher on a systematic review of Suboccipital Decompressive Craniectomy (SDC) for cerebellar stroke.
-You have access to a Genkit-powered extraction system with Zod schemas for structured data extraction.
-Be helpful, precise, and provide code examples when relevant.`;
-
-    const {text} = await ai.generate(`${systemContext}\n\nUser: ${message}`);
-    return {response: text};
-  }
-);
-
-/**
- * Interactive PDF Chat - Query a specific PDF document
- * Based on Genkit chat-with-pdf tutorial pattern
- */
-export async function chatWithPDF(pdfPath: string): Promise<void> {
-  // 1. Load and parse the PDF
-  const absolutePath = path.resolve(pdfPath);
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`PDF not found: ${absolutePath}`);
-  }
-
-  console.log(`\n📄 Loading PDF: ${absolutePath}`);
-  const dataBuffer = fs.readFileSync(absolutePath);
-  const pdfData = await parsePdf(dataBuffer);
-  const pdfText = pdfData.text;
-
-  if (!pdfText || pdfText.length < 100) {
-    throw new Error("PDF appears empty or is a scanned image (OCR not supported)");
-  }
-
-  console.log(`   ✅ Loaded ${pdfText.length} characters from ${pdfData.numpages} pages`);
-
-  // 2. Create the system prompt with PDF context
-  const systemPrompt = `You are an expert neurosurgical researcher assistant helping with a systematic review on Suboccipital Decompressive Craniectomy (SDC) for cerebellar stroke.
-
-You have been given the full text of a medical research paper. Your role is to:
-1. Answer questions about this specific paper accurately
-2. Extract data points when asked (demographics, outcomes, surgical techniques)
-3. Identify limitations or potential biases in the study
-4. Compare findings with standard practices when relevant
-5. Always cite the specific section or quote from the paper that supports your answer
-
-IMPORTANT: Only answer based on the content of this paper. If information is not in the paper, say so clearly.
-
----
-PAPER CONTENT:
-${pdfText}
----
-
-Ready to answer questions about this paper.`;
-
-  // 3. Set up readline interface
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  // 4. Initialize conversation history
-  type MessageRole = "user" | "model";
-  const history: Array<{role: MessageRole; content: string}> = [];
-
-  console.log(`\n🧠 Chat session started. Ask questions about the paper.`);
-  console.log(`   Type 'exit' or press Ctrl+C to quit.\n`);
-
-  // Quick extraction prompts
-  console.log(`💡 Quick commands:`);
-  console.log(`   /summary    - Get a brief summary of the study`);
-  console.log(`   /pico       - Extract PICO elements`);
-  console.log(`   /outcomes   - List all reported outcomes`);
-  console.log(`   /quality    - Assess study quality (NOS)`);
-  console.log(`   /extract    - Run full structured extraction\n`);
-
-  // 5. Interactive chat loop
-  while (true) {
-    const userInput = await rl.question("You: ");
-
-    if (userInput.toLowerCase() === "exit" || userInput.toLowerCase() === "quit") {
-      console.log("\n👋 Chat session ended.");
-      rl.close();
-      break;
-    }
-
-    // Handle quick commands
-    let prompt = userInput;
-    if (userInput === "/summary") {
-      prompt = "Provide a brief summary of this study in 3-4 sentences, including: study design, sample size, main intervention, and key findings.";
-    } else if (userInput === "/pico") {
-      prompt = "Extract the PICO elements from this study: Population (who was studied, inclusion/exclusion criteria), Intervention (what surgical procedure), Comparator (if any control group), Outcomes (primary and secondary outcomes measured).";
-    } else if (userInput === "/outcomes") {
-      prompt = "List all reported outcomes from this study, including: mortality rates, functional outcomes (GOS, mRS), complications, and any other measured endpoints. Include the specific values and timepoints.";
-    } else if (userInput === "/quality") {
-      prompt = "Assess the methodological quality of this study using the Newcastle-Ottawa Scale criteria: Selection (4 items), Comparability (2 items), Outcome (3 items). Provide scores and rationale for each.";
-    } else if (userInput === "/extract") {
-      prompt = `Extract all data fields needed for meta-analysis:
-1. Study Metadata: Authors, year, journal, hospital, study period
-2. Population: Sample size, age (mean±SD), GCS scores, diagnosis, hydrocephalus %
-3. Intervention: Procedure details, timing, EVD use, duraplasty
-4. Comparator: If present, describe the control group
-5. Outcomes: Mortality (with timepoint), mRS outcomes (with definition), complications, length of stay
-6. Quality: Newcastle-Ottawa Scale assessment
-
-For each numeric value, provide the exact quote from the paper.`;
-    }
-
-    try {
-      // Add user message to history
-      history.push({role: "user", content: prompt});
-
-      // Generate response with conversation history
-      const {text} = await ai.generate({
-        system: systemPrompt,
-        messages: history.map(msg => ({
-          role: msg.role,
-          content: [{text: msg.content}],
-        })),
-      });
-
-      // Add assistant response to history
-      history.push({role: "model", content: text});
-
-      console.log(`\nGemini: ${text}\n`);
-    } catch (error) {
-      console.error(`\n❌ Error: ${error instanceof Error ? error.message : String(error)}\n`);
-    }
-  }
-}
+// ==========================================
+// 10. Chat Session Store (Moved to src/chat/)
+// ==========================================
+// Chat functionality has been modularized into src/chat/
+// - session-store.ts: SessionStore interface and implementations
+// - tools.ts: RAG-powered chat tools
+// - flows.ts: Chat flows with tool integration
+// - index.ts: Module entry point
+//
+// Re-exported from ./chat/index.js:
+// - createChatSession, sendChatMessage, getChatHistory
+// - listChatSessions, deleteChatSession, chat, chatWithPDF
+// - SessionData, PDFChatState types
+// ==========================================
 
 // ==========================================
 // 4. CLI Entry Point
@@ -1862,6 +2612,376 @@ What's the best next step for production use?`;
     console.log("📖 VERIFICATION REPORT WITH CITATIONS");
     console.log("═".repeat(50) + "\n");
     console.log(formatVerificationReport(extractedData));
+  } else if (command === "annotate") {
+    // Ground truth annotation mode
+    const studyId = args[1];
+    if (!studyId) {
+      console.error("Usage: npm run genkit annotate <study_id>");
+      console.error("Example: npm run genkit annotate Smith-2022");
+      console.error("\nThis will start interactive annotation for creating ground truth.");
+      process.exit(1);
+    }
+
+    // Load existing ground truth or create new
+    const existingGTs = loadGroundTruth();
+    let gt = existingGTs.find((g) => g.studyId === studyId);
+
+    if (!gt) {
+      console.log(`\n📝 Creating new ground truth for ${studyId}`);
+      console.log("Enter PDF path:");
+      const rl = readline.createInterface({input: process.stdin, output: process.stdout});
+      const pdfPath = await rl.question("> ");
+      const annotationType = await rl.question("Type (baseline/ground_truth/challenge): ");
+      const difficulty = await rl.question("Difficulty (easy/medium/hard): ");
+      const studyDesign = await rl.question("Study design: ");
+      const annotatorId = await rl.question("Your annotator ID: ");
+      rl.close();
+
+      const result = await createGroundTruth({
+        studyId,
+        pdfPath: pdfPath.trim(),
+        annotationType: annotationType.trim() as "baseline" | "ground_truth" | "challenge",
+        annotatorId: annotatorId.trim(),
+        difficulty: difficulty.trim() as "easy" | "medium" | "hard",
+        studyDesign: studyDesign.trim(),
+      });
+
+      console.log(`✅ ${result.message}`);
+      gt = loadGroundTruth().find((g) => g.studyId === studyId);
+    }
+
+    if (!gt) {
+      console.error("Failed to create ground truth");
+      process.exit(1);
+    }
+
+    // Interactive annotation loop
+    console.log(`\n📋 Ground Truth for ${studyId}`);
+    console.log(`   Annotations: ${gt.fieldAnnotations.length}`);
+    console.log(`   Status: ${gt.metadata.reviewStatus}\n`);
+
+    const rl2 = readline.createInterface({input: process.stdin, output: process.stdout});
+
+    while (true) {
+      console.log("Options:");
+      console.log("  1. Add/update field annotation");
+      console.log("  2. List current annotations");
+      console.log("  3. Exit");
+      const choice = await rl2.question("> ");
+
+      if (choice.trim() === "3") {
+        break;
+      } else if (choice.trim() === "1") {
+        const field = await rl2.question("Field path (e.g., population.age.mean): ");
+        const value = await rl2.question("Ground truth value: ");
+        const source = await rl2.question("Source evidence (verbatim quote): ");
+        const confidence = await rl2.question("Confidence (0.0-1.0): ");
+        const annotator = await rl2.question("Your annotator ID: ");
+        const notes = await rl2.question("Notes (optional): ");
+
+        const result = await annotateField({
+          studyId,
+          field: field.trim(),
+          groundTruthValue: value.trim(),
+          sourceEvidence: source.trim(),
+          annotatorId: annotator.trim(),
+          confidence: parseFloat(confidence.trim()),
+          notes: notes.trim() || undefined,
+        });
+
+        console.log(`✅ ${result.message}\n`);
+      } else if (choice.trim() === "2") {
+        const updated = loadGroundTruth().find((g) => g.studyId === studyId);
+        if (updated) {
+          console.log(`\nCurrent annotations (${updated.fieldAnnotations.length}):`);
+          updated.fieldAnnotations.forEach((a, i) => {
+            console.log(`  ${i + 1}. ${a.field} = ${a.groundTruthValue}`);
+            console.log(`     Source: ${a.sourceEvidence.substring(0, 60)}...`);
+            console.log(`     Annotator: ${a.annotatorId}, Confidence: ${a.confidence}\n`);
+          });
+        }
+      }
+    }
+
+    rl2.close();
+    console.log("Annotation session ended.");
+  } else if (command === "evaluate-dataset") {
+    // Evaluate extraction against ground truth
+    const studyId = args[1];
+    if (!studyId) {
+      console.error("Usage: npm run genkit evaluate-dataset <study_id>");
+      console.error("Example: npm run genkit evaluate-dataset Smith-2022");
+      console.error("\nThis evaluates an extraction against its ground truth annotation.");
+      process.exit(1);
+    }
+
+    // Check if ground truth exists
+    const groundTruths = loadGroundTruth();
+    const gt = groundTruths.find((g) => g.studyId === studyId);
+
+    if (!gt) {
+      console.error(`Ground truth not found for ${studyId}`);
+      console.error("Create it first with: npm run genkit annotate <study_id>");
+      process.exit(1);
+    }
+
+    console.log(`\n📊 Evaluating ${studyId} against ground truth...`);
+
+    // Extract data from the PDF
+    const pdfPath = path.resolve(gt.pdfPath);
+    if (!fs.existsSync(pdfPath)) {
+      console.error(`PDF not found: ${pdfPath}`);
+      process.exit(1);
+    }
+
+    const dataBuffer = fs.readFileSync(pdfPath);
+    const pdfData = await parsePdf(dataBuffer);
+    const pdfText = pdfData.text;
+
+    console.log("🔄 Running extraction...");
+    const extractedData = await extractStudyData({pdfText});
+
+    console.log("📈 Comparing with ground truth...");
+    const evalResult = await evaluateAgainstGroundTruth({studyId, extractedData});
+
+    console.log("\n" + "═".repeat(60));
+    console.log("📊 EVALUATION RESULTS");
+    console.log("═".repeat(60) + "\n");
+
+    console.log("Overall Metrics:");
+    console.log(`  Precision:              ${(evalResult.overallMetrics.precision * 100).toFixed(1)}%`);
+    console.log(`  Recall:                 ${(evalResult.overallMetrics.recall * 100).toFixed(1)}%`);
+    console.log(`  F1 Score:               ${(evalResult.overallMetrics.f1Score * 100).toFixed(1)}%`);
+    console.log(`  Source Grounding Rate:  ${(evalResult.overallMetrics.sourceGroundingRate * 100).toFixed(1)}%`);
+    console.log(`  NOS Consistency:        ${evalResult.overallMetrics.nosConsistency ? "✅" : "❌"}`);
+    console.log(`  Critical Field Accuracy: ${(evalResult.overallMetrics.criticalFieldAccuracy * 100).toFixed(1)}%\n`);
+
+    console.log("Field-Level Results:");
+    evalResult.fieldMetrics.forEach((fm) => {
+      const icon = fm.match ? "✅" : "❌";
+      const errorInfo = fm.errorType ? ` (${fm.errorType})` : "";
+      console.log(`  ${icon} ${fm.field}${errorInfo}`);
+      if (!fm.match) {
+        console.log(`     Extracted: ${JSON.stringify(fm.extractedValue)}`);
+        console.log(`     Expected:  ${JSON.stringify(fm.groundTruthValue)}`);
+      }
+    });
+
+    console.log("\n✅ Evaluation complete. Results saved to evaluation-dataset/evaluation_results.json");
+  } else if (command === "report") {
+    // Generate evaluation report
+    const phase = args[1] as "phase1" | "phase2" | "phase3" | undefined;
+
+    if (phase && !["phase1", "phase2", "phase3"].includes(phase)) {
+      console.error("Invalid phase. Must be: phase1, phase2, or phase3");
+      process.exit(1);
+    }
+
+    console.log(`\n📊 Generating evaluation report${phase ? ` for ${phase}` : " (all phases)"}...\n`);
+
+    const report = await generateEvaluationReport({phase});
+
+    console.log(report.summary);
+
+    if (Object.keys(report.byStudyDesign).length > 0) {
+      console.log("\nPerformance by Study Design:");
+      Object.entries(report.byStudyDesign).forEach(([design, metrics]: [string, any]) => {
+        console.log(`  ${design}: ${metrics.count} studies, Avg F1: ${(metrics.avgF1 * 100).toFixed(1)}%`);
+      });
+    }
+
+    if (Object.keys(report.byDifficulty).length > 0) {
+      console.log("\nPerformance by Difficulty:");
+      Object.entries(report.byDifficulty).forEach(([difficulty, metrics]: [string, any]) => {
+        console.log(`  ${difficulty}: ${metrics.count} studies, Avg F1: ${(metrics.avgF1 * 100).toFixed(1)}%`);
+      });
+    }
+
+    if (report.recommendations.length > 0) {
+      console.log("\n💡 Recommendations:");
+      report.recommendations.forEach((r) => {
+        console.log(`  • ${r}`);
+      });
+    }
+  } else if (command === "tables") {
+    // Mistral OCR table extraction
+    const pdfPath = args[1];
+    const outputFormat = args.includes("--json") ? "json" : "markdown";
+    const analyzeSemantics = args.includes("--analyze");
+
+    if (!pdfPath) {
+      console.error("Usage: npm run genkit tables <pdf_file> [--json] [--analyze]");
+      console.error("\nOptions:");
+      console.error("  --json     Output as JSON instead of markdown");
+      console.error("  --analyze  Run semantic analysis on each table");
+      console.error("\nExample:");
+      console.error("  npm run genkit tables ./pdfs/smith2022.pdf");
+      console.error("  npm run genkit tables ./pdfs/smith2022.pdf --analyze");
+      process.exit(1);
+    }
+
+    if (!process.env.MISTRAL_API_KEY) {
+      console.error("❌ MISTRAL_API_KEY not configured. Add it to .env file.");
+      console.error("   Get your key from: https://console.mistral.ai/");
+      process.exit(1);
+    }
+
+    const absolutePath = path.resolve(pdfPath);
+    if (!fs.existsSync(absolutePath)) {
+      console.error(`❌ File not found: ${absolutePath}`);
+      process.exit(1);
+    }
+
+    console.log(`\n📊 Extracting tables from ${path.basename(absolutePath)} with Mistral OCR...\n`);
+
+    const tables = await extractTablesWithMistral({pdfPath: absolutePath});
+
+    if (tables.length === 0) {
+      console.log("No tables found in this PDF.");
+      process.exit(0);
+    }
+
+    console.log(`Found ${tables.length} tables:\n`);
+
+    if (analyzeSemantics) {
+      // Run semantic analysis on each table
+      for (let i = 0; i < tables.length; i++) {
+        const table = tables[i];
+        console.log(`\n=== Table ${i + 1} (Page ${table.pageNumber}) ===`);
+        console.log(`Type: ${table.tableType || "unknown"}`);
+        if (table.caption) console.log(`Caption: ${table.caption}`);
+
+        console.log("\nRunning semantic analysis...");
+        const analysis = await analyzeTableSemantically({
+          markdownTable: table.markdownTable,
+          caption: table.caption || undefined,
+        });
+
+        console.log(`Detected type: ${analysis.tableType}`);
+        console.log(`\nExtracted fields (${analysis.extractedFields.length}):`);
+        analysis.extractedFields.forEach((f) => {
+          console.log(`  • ${f.field}: ${f.value} (${(f.confidence * 100).toFixed(0)}%)`);
+          if (f.reasoning) console.log(`    Reasoning: ${f.reasoning}`);
+        });
+
+        if (analysis.studyArmDetected) {
+          console.log(`\nStudy arm detected:`);
+          console.log(`  Label: ${analysis.studyArmDetected.label}`);
+          console.log(`  N: ${analysis.studyArmDetected.sampleSize}`);
+        }
+
+        if (analysis.warnings.length > 0) {
+          console.log(`\n⚠️ Warnings:`);
+          analysis.warnings.forEach((w) => console.log(`  • ${w}`));
+        }
+      }
+    } else if (outputFormat === "json") {
+      console.log(JSON.stringify(tables, null, 2));
+    } else {
+      // Markdown output
+      tables.forEach((table, i) => {
+        console.log(`\n=== Table ${i + 1} (Page ${table.pageNumber}) ===`);
+        console.log(`Type: ${table.tableType || "unknown"}`);
+        if (table.caption) console.log(`Caption: ${table.caption}`);
+        console.log(`\n${table.markdownTable}`);
+      });
+    }
+  } else if (command === "figures") {
+    // Mistral OCR figure extraction
+    const pdfPath = args[1];
+
+    if (!pdfPath) {
+      console.error("Usage: npm run genkit figures <pdf_file>");
+      console.error("\nExample: npm run genkit figures ./pdfs/smith2022.pdf");
+      process.exit(1);
+    }
+
+    if (!process.env.MISTRAL_API_KEY) {
+      console.error("❌ MISTRAL_API_KEY not configured. Add it to .env file.");
+      process.exit(1);
+    }
+
+    const absolutePath = path.resolve(pdfPath);
+    if (!fs.existsSync(absolutePath)) {
+      console.error(`❌ File not found: ${absolutePath}`);
+      process.exit(1);
+    }
+
+    console.log(`\n📈 Extracting figures from ${path.basename(absolutePath)} with Mistral OCR...\n`);
+
+    const figures = await extractFiguresWithMistral({pdfPath: absolutePath});
+
+    if (figures.length === 0) {
+      console.log("No figures found in this PDF.");
+      process.exit(0);
+    }
+
+    console.log(`Found ${figures.length} figures:\n`);
+
+    figures.forEach((fig, i) => {
+      console.log(`\n=== Figure ${i + 1} (Page ${fig.pageNumber}) ===`);
+      console.log(`Type: ${fig.figureType}`);
+      if (fig.caption) console.log(`Caption: ${fig.caption}`);
+      if (fig.summary) console.log(`Summary: ${fig.summary}`);
+      if (fig.clinicalRelevance) console.log(`Clinical Relevance: ${fig.clinicalRelevance}`);
+
+      if (fig.extractedValues.length > 0) {
+        console.log(`\nExtracted values:`);
+        fig.extractedValues.forEach((v) => {
+          console.log(`  • ${v.label}: ${v.value} (${(v.confidence * 100).toFixed(0)}%)`);
+        });
+      }
+    });
+  } else if (command === "serve") {
+    // Start HTTP server exposing Genkit flows
+    const port = parseInt(args[1]) || 3400;
+    const cors = args.includes("--cors");
+
+    console.log(`
+🚀 Starting Genkit Flow Server
+   Port: ${port}
+   CORS: ${cors ? "enabled" : "disabled"}
+   Storage: ${USE_LOCAL_STORAGE ? "LOCAL" : "FIRESTORE"}
+`);
+
+    // Start the server with selected flows
+    startFlowServer({
+      port,
+      cors: cors ? {origin: "*"} : undefined,
+      flows: [
+        // Chat flows
+        createChatSession,
+        sendChatMessage,
+        getChatHistory,
+        listChatSessions,
+        deleteChatSession,
+        // Extraction flows
+        extractStudyData,
+        checkAndSaveStudy,
+        listStudies,
+        searchSimilarStudies,
+        // Evaluation flows
+        evaluateExtraction,
+        critiqueExtraction,
+        quickCritique,
+      ],
+    });
+
+    console.log(`\n📡 Available endpoints:`);
+    console.log(`   POST /createChatSession   - Create new chat session`);
+    console.log(`   POST /sendChatMessage     - Send message and get response`);
+    console.log(`   POST /getChatHistory      - Get session history`);
+    console.log(`   POST /listChatSessions    - List all sessions`);
+    console.log(`   POST /deleteChatSession   - Delete a session`);
+    console.log(`   POST /extractStudyData    - Extract structured data from PDF text`);
+    console.log(`   POST /checkAndSaveStudy   - Save extracted study with validation`);
+    console.log(`   POST /listStudies         - List all stored studies`);
+    console.log(`   POST /searchSimilarStudies - Semantic search across studies`);
+    console.log(`   POST /evaluateExtraction  - Run quality evaluation`);
+    console.log(`   POST /critiqueExtraction  - Run critique/reflector validation`);
+    console.log(`   POST /quickCritique       - Real-time validation (for frontend)`);
+    console.log(`\n✅ Server running at http://localhost:${port}`);
+    console.log(`   Press Ctrl+C to stop\n`);
   } else if (command === "help") {
     console.log(`
 🧠 Cerebellar SDC Extraction System
@@ -1869,15 +2989,22 @@ Storage: ${USE_LOCAL_STORAGE ? "LOCAL (./data/studies.json)" : "FIRESTORE"}
 MCP: genkit-cerebellar (exposing ${Object.keys({extractStudyData, checkAndSaveStudy, listStudies, searchSimilarStudies, evaluateExtraction}).length} flows)
 
 Commands:
-  chat [message]     - Collaborate with Gemini 3 Pro
-  pdf <file>         - Interactive chat with a specific PDF
-  extract <text>     - Extract structured data from PDF text
-  batch <dir> [n]    - Batch process PDFs from directory (n = concurrency)
-  search <query>     - RAG semantic search across indexed studies
-  eval <file>        - Extract and evaluate quality from a PDF
-  export [path]      - Export studies to CSV
-  list               - Show all studies in database
-  help               - Show this help
+  serve [port] [--cors]    - Start HTTP server for frontend integration
+  chat [message]           - Collaborate with Gemini 3 Pro
+  pdf <file>               - Interactive chat with a specific PDF
+  extract <text>           - Extract structured data from PDF text
+  batch <dir> [n]          - Batch process PDFs from directory (n = concurrency)
+  search <query>           - RAG semantic search across indexed studies
+  eval <file>              - Extract and evaluate quality from a PDF
+  export [path]            - Export studies to CSV
+  list                     - Show all studies in database
+  critique <file> [--mode] - Run critique/validation on extraction
+  tables <file> [--json] [--analyze]  - Extract tables with Mistral OCR (96% accuracy)
+  figures <file>           - Extract figures/charts with Mistral OCR
+  annotate <study_id>      - Create/edit ground truth annotations (interactive)
+  evaluate-dataset <id>    - Evaluate extraction against ground truth
+  report [phase]           - Generate evaluation dataset report
+  help                     - Show this help
 
 PDF Chat Commands (inside pdf session):
   /summary           - Get a brief summary of the study
@@ -1899,7 +3026,13 @@ Environment Variables:
   USE_FIRESTORE=true    Use Firestore instead of local JSON storage
   GOOGLE_GENAI_API_KEY  Your Google AI API key
 
+Evaluation Dataset Workflow:
+  Phase 1: Baseline   - 15 papers regression testing + 5 ground truth
+  Phase 2: Expanded   - 20 ground truth + 10 challenge cases
+  Phase 3: Expert     - 50 papers with inter-rater reliability
+
 Examples:
+  npm run genkit serve 3400 --cors   # Start server for frontend
   npm run genkit chat "How should I handle multicenter studies?"
   npm run genkit pdf ./pdfs/smith2022.pdf
   npm run genkit eval ./pdfs/smith2022.pdf
@@ -1907,6 +3040,10 @@ Examples:
   npm run genkit batch ./pdfs 3
   npm run genkit export ./my_dataset.csv
   npm run genkit list
+  npm run genkit critique ./pdfs/smith2022.pdf --mode=AUTO
+  npm run genkit annotate Smith-2022
+  npm run genkit evaluate-dataset Smith-2022
+  npm run genkit report phase1
     `);
   } else {
     console.log("Unknown command. Use 'help' for available commands.");
@@ -1917,3 +3054,16 @@ main().catch(console.error);
 
 // Exports for use in other modules
 export {ai};
+
+// Re-export chat module (modularized into src/chat/)
+export {
+  createChatSession,
+  sendChatMessage,
+  getChatHistory,
+  listChatSessions,
+  deleteChatSession,
+  chat,
+  chatWithPDF,
+  type SessionData,
+  type PDFChatState,
+} from "./chat/index.js";

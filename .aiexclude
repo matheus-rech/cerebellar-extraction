@@ -1,0 +1,28 @@
+# API keys and secrets
+public/config.js
+.env
+.env.*
+*.key
+**/secrets/
+**/credentials/
+
+# Firebase service account
+*-firebase-adminsdk-*.json
+service-account*.json
+
+# Generated and build files
+node_modules/
+dist/
+.cache/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.idea/
+*.swp
+*.swo

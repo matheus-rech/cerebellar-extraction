@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "genkit-cerebellar": {
+      "command": "node",
+      "args": ["./node_modules/.bin/genkit", "mcp"],
+      "timeout": 60000,
+      "trust": true,
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "firebase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "firebase-tools@latest",
+        "mcp",
+        "--only", "auth,firestore,storage,functions"
+      ],
+      "timeout": 60000,
+      "trust": true
+    }
+  }
+}

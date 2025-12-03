@@ -7,7 +7,14 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "genkit": "tsx src/genkit.ts"
+    "genkit": "tsx src/genkit.ts",
+    "upload-pdfs": "node scripts/bulk-upload-pdfs.js --emulator",
+    "upload-pdfs:dry-run": "node scripts/bulk-upload-pdfs.js --dry-run",
+    "upload-pdfs:prod": "node scripts/bulk-upload-pdfs.js",
+    "test:e2e": "npx playwright test --project=chromium",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:headed": "npx playwright test --headed --project=chromium",
+    "test:e2e:debug": "npx playwright test --debug --project=chromium"
   },
   "keywords": [
     "cerebellar-stroke",
@@ -23,21 +30,29 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@genkit-ai/dev-local-vectorstore": "^1.24.0",
+    "@genkit-ai/express": "^1.24.0",
+    "@genkit-ai/google-genai": "^1.24.0",
     "@genkit-ai/googleai": "^1.24.0",
+    "@genkit-ai/mcp": "^1.24.0",
     "@google-cloud/firestore": "^7.11.6",
+    "@mistralai/mistralai": "^1.10.0",
     "dotenv": "^17.2.3",
     "firebase-admin": "^13.6.0",
+    "firebase-cli": "^1.2.0",
     "fuse.js": "^7.1.0",
     "genkit": "^1.24.0",
     "json2csv": "^6.0.0-alpha.2",
     "p-limit": "^7.2.0",
     "pdf-parse": "^2.4.5",
-    "pdfjs-dist": "^5.4.394",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "pdfjs-dist": "^5.4.394"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/json2csv": "^5.0.7",
-    "@types/pdf-parse": "^1.1.5"
+    "@types/node": "^24.10.1",
+    "@types/pdf-parse": "^1.1.5",
+    "genkit-cli": "^1.24.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   }
 }

@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+functions/node_modules/
+functions-python/venv/
+
+# Build outputs
+dist/
+*.js.map
+
+# Git
+.git/
+.gitignore
+
+# Firebase
+.firebase/
+firebase-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Test files
+*.test.ts
+tests/
+playwright-report/
+test-results/
+
+# Data files
+data/
+evaluation-dataset/
+*.pdf
+
+# Environment
+.env
+.env.*
+*.local
+
+# Documentation
+*.md
+!prompts/*.md
+
+# Other
+.DS_Store
+Thumbs.db
