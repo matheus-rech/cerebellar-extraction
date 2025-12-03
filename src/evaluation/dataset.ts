@@ -601,7 +601,8 @@ function getNestedValue(obj: any, path: string): any {
  */
 function deepEqual(a: any, b: any): boolean {
   if (a === b) return true;
-  if (a == null || b == null) return false;
+  if (a === null || b === null) return false;
+  if (a === undefined || b === undefined) return false;
   if (typeof a !== "object" || typeof b !== "object") return a === b;
 
   const keysA = Object.keys(a);
