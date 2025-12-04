@@ -10,6 +10,7 @@ import {genkit, z, Document} from "genkit";
 import {devLocalVectorstore} from "@genkit-ai/dev-local-vectorstore";
 import * as fs from "fs";
 import * as path from "path";
+import {fileURLToPath} from "url";
 import pLimit from "p-limit";
 import {createRequire} from "module";
 import {Parser} from "json2csv";
@@ -149,7 +150,7 @@ const ai = genkit({
     ]),
   ],
   model: "googleai/gemini-3-pro-preview",
-  promptDir: "./prompts", // Dotprompt templates for extraction agents
+  promptDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "prompts"), // Dotprompt templates for extraction agents
 });
 
 // ==========================================
@@ -773,7 +774,7 @@ Return structured JSON matching the output schema.`;
 
     try {
       const response = await ai.generate({
-        model: googleAI.model("gemini-2.5-flash"),
+        model: googleAI.model("gemini-3-pro-preview"),
         prompt: [
           {text: prompt},
           {media: {contentType: mimeType, url: `data:${mimeType};base64,${imageBase64}`}},
@@ -1061,7 +1062,7 @@ Respond with structured JSON containing:
 4. warnings: Any ambiguities or potential issues`;
 
     const response = await ai.generate({
-      model: "googleai/gemini-2.0-flash",
+      model: "googleai/gemini-3-pro-preview",
       prompt,
       output: {
         format: "json",

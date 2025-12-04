@@ -1,0 +1,27 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ============================================
+    // DEVELOPMENT MODE - PUBLIC ACCESS
+    // ============================================
+    // WARNING: These rules allow public read/write access.
+    // For production, re-enable authentication.
+
+    // Paper storage - public access for development
+    match /papers/{paperId}/{fileName} {
+      allow read: if true;
+
+      // Allow PDF uploads up to 50MB
+      allow create: if request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf');
+
+      allow delete: if true;
+    }
+
+    // Allow all other paths for development flexibility
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

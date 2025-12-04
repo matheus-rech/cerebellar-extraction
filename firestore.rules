@@ -1,9 +1,31 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to read and write only their own data within the artifacts collection
+
+    // ============================================
+    // DEVELOPMENT MODE - PUBLIC ACCESS
+    // ============================================
+    // WARNING: These rules allow public read/write access.
+    // For production, re-enable authentication.
+
+    // User extraction data - public access for development
     match /artifacts/{appId}/users/{userId}/data/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if true;
+    }
+
+    // Paper library - public access for development
+    match /papers/{paperId} {
+      allow read, write: if true;
+    }
+
+    // Studies collection - public access for development
+    match /studies/{studyId} {
+      allow read, write: if true;
+    }
+
+    // Chat sessions - public access for development
+    match /chat_sessions/{sessionId} {
+      allow read, write: if true;
     }
   }
 }

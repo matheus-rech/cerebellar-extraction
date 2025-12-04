@@ -341,7 +341,7 @@ export const sendChatMessage = ai.defineFlow(
 
       // Generate without tools
       const {text: response} = await ai.generate({
-        model: googleAI.model("gemini-2.5-flash"),
+        model: googleAI.model("gemini-3-pro-preview"),
         system: systemPrompt,
         prompt: fullPrompt,
       });
@@ -377,7 +377,7 @@ Always cite specific data points, statistics, and direct quotes.`;
       : `User: ${message}`;
 
     const {text: response} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
+      model: googleAI.model("gemini-3-pro-preview"),
       system: systemPromptWithCitations,
       prompt: fullPrompt,
       tools: activeTools,
@@ -555,7 +555,7 @@ You have access to a Genkit-powered extraction system with Zod schemas for struc
 Be helpful, precise, and provide code examples when relevant.`;
 
     const {text} = await ai.generate({
-      model: googleAI.model("gemini-2.5-flash"),
+      model: googleAI.model("gemini-3-pro-preview"),
       prompt: `${systemContext}\n\nUser: ${message}`,
     });
     return {response: text};
