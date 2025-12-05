@@ -169,13 +169,10 @@ const triageTool = ai.defineTool(
 type SharedContext = z.infer<typeof SharedContextSchema>;
 
 /**
- * Creates flow-scoped tools that operate on an isolated context.
- * This prevents concurrent flow executions from corrupting each other's state.
- *
- * IMPORTANT: Each flow invocation gets its own context via closure.
- * See: https://github.com/matheus-rech/cerebellar-extraction/pull/1#discussion_r2570029650
+ * Creates flow-scoped tools for inter-agent communication.
+ * Each flow invocation receives its own isolated context to prevent race conditions.
  */
-function createScopedTools(context: SharedContext) {
+function createSharedContextTools(context: SharedContext) {
   const shareFindingTool = ai.defineTool(
     {
       name: "shareFinding",
@@ -296,10 +293,9 @@ Source (first 30000 chars): {{pdfText}}
 Return your findings as a CriticResult.`;
 
 /**
- * Factory to create scoped critic agents.
- * Each invocation creates agents with tools bound to the flow's isolated context.
+ * Factory to create critic agents scoped to a single flow invocation.
  */
-function createScopedAgents(tools: ReturnType<typeof createScopedTools>) {
+function createCriticAgents(tools: ReturnType<typeof createSharedContextTools>) {
   const {shareFindingTool, readFindingsTool, crossReferenceTool} = tools;
 
   /**
@@ -395,9 +391,9 @@ Weight issues by:
 Return synthesized analysis.`;
 
 /**
- * Factory to create scoped synthesizer agent
+ * Factory to create the synthesizer agent scoped to a single flow.
  */
-function createScopedSynthesizer(tools: ReturnType<typeof createScopedTools>) {
+function createSynthesizerAgent(tools: ReturnType<typeof createSharedContextTools>) {
   const {readFindingsTool} = tools;
 
   return ai.definePrompt(
@@ -470,15 +466,11 @@ export const multiAgentCritique = ai.defineFlow(
     }),
   },
   async ({extractedData, pdfText}) => {
-    // Create FLOW-SCOPED context - isolated from concurrent executions
-    // This fixes the concurrency bug where module-level state was shared
-    // See: https://github.com/matheus-rech/cerebellar-extraction/pull/1#discussion_r2570029650
-    const flowContext: SharedContext = {findings: [], crossReferences: []};
-
-    // Create scoped tools and agents bound to this flow's context
-    const scopedTools = createScopedTools(flowContext);
-    const {mathConsistencyAgent, scaleInversionAgent, sourceCitationAgent} = createScopedAgents(scopedTools);
-    const synthesizerAgent = createScopedSynthesizer(scopedTools);
+    // Create flow-scoped context and toolset for this invocation
+    const sharedContext: SharedContext = {findings: [], crossReferences: []};
+    const tools = createSharedContextTools(sharedContext);
+    const agents = createCriticAgents(tools);
+    const synthesizerAgent = createSynthesizerAgent(tools);
 
     console.log("🎯 Multi-Agent Critique: Starting triage...");
 
@@ -503,7 +495,7 @@ export const multiAgentCritique = ai.defineFlow(
       switch (agentType) {
         case "math_consistency":
           agentPromises.push(
-            mathConsistencyAgent({
+            agents.mathConsistencyAgent({
               population: extractedData?.population,
               outcomes: extractedData?.outcomes,
             }).then((r) => r.output || {criticId: agentType, passed: true, issues: []})
@@ -512,7 +504,7 @@ export const multiAgentCritique = ai.defineFlow(
 
         case "scale_inversion":
           agentPromises.push(
-            scaleInversionAgent({
+            agents.scaleInversionAgent({
               outcomes: extractedData?.outcomes,
               pdfText: pdfText?.slice(0, 10000),
             }).then((r) => r.output || {criticId: agentType, passed: true, issues: []})
@@ -522,7 +514,7 @@ export const multiAgentCritique = ai.defineFlow(
         case "source_citation":
           if (pdfText) {
             agentPromises.push(
-              sourceCitationAgent({
+              agents.sourceCitationAgent({
                 extractedData,
                 pdfText: pdfText.slice(0, 30000),
               }).then((r) => r.output || {criticId: agentType, passed: true, issues: []})
@@ -562,8 +554,8 @@ export const multiAgentCritique = ai.defineFlow(
 
     const synthesisResult = await synthesizerAgent({
       agentResults: successfulResults,
-      sharedFindings: flowContext.findings,
-      crossReferences: flowContext.crossReferences,
+      sharedFindings: sharedContext.findings,
+      crossReferences: sharedContext.crossReferences,
     });
 
     const synthesis = synthesisResult.output || {
@@ -584,8 +576,8 @@ export const multiAgentCritique = ai.defineFlow(
       executionStats: {
         agentsRun: successfulResults.length,
         agentsSkipped: Object.keys(triageDecision.skipReason || {}).length,
-        totalFindings: flowContext.findings.length,
-        crossReferences: flowContext.crossReferences.length,
+        totalFindings: sharedContext.findings.length,
+        crossReferences: sharedContext.crossReferences.length,
       },
     };
   }
@@ -594,9 +586,9 @@ export const multiAgentCritique = ai.defineFlow(
 // Export for use in main orchestrator
 export {triageTool};
 
-// Export factories for creating scoped tools and agents
-// IMPORTANT: Use these factories to create isolated contexts for concurrent execution
-export {createScopedTools, createScopedAgents, createScopedSynthesizer};
+// Export factories for creating flow-scoped tools and agents
+// IMPORTANT: Use these to keep each flow invocation isolated
+export {createSharedContextTools, createCriticAgents, createSynthesizerAgent};
 
 // Export schemas and types for external use
 export {SharedContextSchema, AgentFindingSchema, TriageDecisionSchema};
