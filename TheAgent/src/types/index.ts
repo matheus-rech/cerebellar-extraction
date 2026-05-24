@@ -129,12 +129,21 @@ export interface TableData {
   extracted_type: 'vision' | 'text' | 'docling';
 }
 
+export interface BoundingBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  page: number;
+}
+
 export interface FigureData {
   figure_number: number;
   title: string;
   page: number;
   type: 'kaplan-meier' | 'forest-plot' | 'bar-chart' | 'scatter' | 'other';
   caption?: string;
+  highlights?: BoundingBox[];
   data_points?: DataPoint[];
 }
 
@@ -243,6 +252,7 @@ export interface FullPdfResult {
 
 export interface TableExtractionResult {
   tables: TableData[];
+  figures?: FigureData[];
   extraction_method: 'docling' | 'vision' | 'fallback';
   confidence: number;
 }
