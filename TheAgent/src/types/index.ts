@@ -129,7 +129,7 @@ export interface TableData {
   extracted_type: 'vision' | 'text' | 'docling';
 }
 
-export interface BoundingBox {
+export interface FigureBoundingBox {
   left: number;
   top: number;
   right: number;
@@ -143,7 +143,7 @@ export interface FigureData {
   page: number;
   type: 'kaplan-meier' | 'forest-plot' | 'bar-chart' | 'scatter' | 'other';
   caption?: string;
-  highlights?: BoundingBox[];
+  highlights?: FigureBoundingBox[];
   data_points?: DataPoint[];
 }
 
