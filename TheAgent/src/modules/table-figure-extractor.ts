@@ -9,8 +9,7 @@ import type {
   TableExtractionResult,
   TableData,
   FigureData,
-  DataPoint,
-  BoundingBox
+  FigureBoundingBox
 } from '../types/index.js';
 import { getDoclingClient, type DoclingTable } from '../utils/docling-mcp-client.js';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
@@ -31,7 +30,15 @@ interface PageImage {
   pageNumber: number;
   imageBase64: string;
   imagePath?: string;
+  width: number;
+  height: number;
 }
+
+const DEFAULT_VISION_MODEL = 'claude-3-5-sonnet-20241022';
+const DOCLING_CONFIDENCE = 0.95;
+const VISION_CONFIDENCE = 0.82;
+const HEURISTIC_CONFIDENCE = 0.6;
+const PLACEHOLDER_IMAGE_DIMENSION = 1;
 
 export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtractionResult> {
   readonly name = 'Table & Figure Extractor';
@@ -101,13 +108,13 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
 
         this.log(`Docling extracted ${doclingImages.length} images`, options?.verbose);
 
-        figures = doclingImages.map((img, index) => ({
+        figures = doclingImages.map(img => ({
           figure_number: img.image_number,
           title: img.caption || `Figure ${img.image_number}`,
           page: img.page || 0,
           type: this.mapImageTypeToFigureType(img.type),
           caption: img.caption,
-          highlights: this.defaultHighlight(img.page || 0),
+          highlights: this.defaultHighlight(img.page || 0, PLACEHOLDER_IMAGE_DIMENSION, PLACEHOLDER_IMAGE_DIMENSION),
           data_points: [] // TODO: Extract data points from charts if needed
         }));
       }
@@ -116,7 +123,7 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
         tables,
         figures: figures.length > 0 ? figures : undefined,
         extraction_method: 'docling',
-        confidence: 0.95, // Docling has high accuracy
+        confidence: DOCLING_CONFIDENCE,
       };
     } catch (error) {
       this.logError(`Docling extraction failed: ${error}`);
@@ -130,18 +137,8 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
   /**
    * Fallback: Extract tables using Claude vision API
    *
-   * TODO: Implement vision-based table extraction
-   *
-   * This fallback method should:
-   * 1. Convert PDF pages to images
-   * 2. Use Claude vision to identify table regions
-   * 3. Extract table content via vision API
-   * 4. Structure the data into TableData format
-   *
-   * Trade-offs to consider:
-   * - Vision is slower but works without Docling
-   * - May have lower accuracy on complex tables
-   * - Better for figures and charts
+   * Converts pages to images, uses Claude vision when available, and otherwise
+   * returns citation-aware heuristic table placeholders.
    */
   private async extractWithVision(
     input: TableFigureInput,
@@ -157,12 +154,17 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
 
     const tables: TableData[] = [];
     let tableCounter = 1;
+    let visionTableCount = 0;
+    const visionResults = await Promise.all(
+      images.map(image => this.detectTablesWithVision(image.imageBase64, image.pageNumber, options))
+    );
 
-    for (const image of images) {
-      // Try Claude vision if API key is configured
-      const visionTables = await this.detectTablesWithVision(image.imageBase64, image.pageNumber, options);
+    for (let index = 0; index < images.length; index++) {
+      const image = images[index];
+      const visionTables = visionResults[index];
 
       if (visionTables?.length) {
+        visionTableCount += visionTables.length;
         visionTables.forEach(table => {
           table.table_number = tableCounter++;
           tables.push({
@@ -196,19 +198,15 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
       tables,
       figures,
       extraction_method: 'vision',
-      confidence: tables.length > 0 ? 0.82 : 0.6,
+      confidence: visionTableCount > 0 ? VISION_CONFIDENCE : HEURISTIC_CONFIDENCE,
     };
   }
 
   /**
    * Extract figures and charts from PDF
    *
-   * TODO: Implement figure extraction
-   *
-   * Key considerations:
-   * - How to identify different chart types (Kaplan-Meier, forest plots, etc.)?
-   * - Should we extract data points from charts for IPD reconstruction?
-   * - How to handle image quality and resolution?
+   * Classifies page images with Claude vision when available. Unclassified pages
+   * are returned as low-confidence heuristic figures without inferred chart data.
    */
   async extractFigures(
     input: TableFigureInput,
@@ -226,23 +224,25 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
     const figures: FigureData[] = [];
 
     for (const image of images) {
-      const visionFigure = await this.classifyFigureWithVision(image.imageBase64, image.pageNumber, options);
+      const visionFigure = await this.classifyFigureWithVision(
+        image.imageBase64,
+        image.pageNumber,
+        image.width,
+        image.height,
+        options
+      );
 
       if (visionFigure) {
-        figures.push(visionFigure);
+        figures.push({ ...visionFigure, figure_number: figures.length + 1 });
       } else {
-        // Fallback classification heuristics
-        const fallbackType: FigureData['type'] = image.pageNumber % 2 === 0 ? 'kaplan-meier' : 'forest-plot';
+        const fallbackType: FigureData['type'] = 'other';
         figures.push({
           figure_number: figures.length + 1,
           title: `Figure ${figures.length + 1} (vision heuristic)`,
           page: image.pageNumber,
           type: fallbackType,
           caption: `Heuristic figure classification on page ${image.pageNumber}`,
-          highlights: this.defaultHighlight(image.pageNumber),
-          data_points: fallbackType === 'kaplan-meier'
-            ? this.syntheticCurveData()
-            : undefined
+          highlights: this.defaultHighlight(image.pageNumber, image.width, image.height)
         });
       }
     }
@@ -305,8 +305,6 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
 
     try {
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.mjs', import.meta.url).toString();
-
       const buffer = readFileSync(pdfPath);
       const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
       const targetPages = pages?.length
@@ -337,7 +335,12 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
           }
         }
 
-        images.push({ pageNumber, imageBase64 });
+        images.push({
+          pageNumber,
+          imageBase64,
+          width: viewport.width,
+          height: viewport.height
+        });
       }
     } catch (error) {
       this.log(`PDF rendering unavailable, defaulting to placeholder images: ${error}`, verbose);
@@ -353,7 +356,12 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
       }
 
       const targetPages = pages?.length ? pages : Array.from({ length: pageCount }, (_, i) => i + 1);
-      images = targetPages.map(pageNumber => ({ pageNumber, imageBase64: placeholderPng }));
+      images = targetPages.map(pageNumber => ({
+        pageNumber,
+        imageBase64: placeholderPng,
+        width: PLACEHOLDER_IMAGE_DIMENSION,
+        height: PLACEHOLDER_IMAGE_DIMENSION
+      }));
     }
 
     if (outputDir) {
@@ -382,14 +390,14 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
     try {
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       const response = await client.messages.create({
-        model: options?.model || 'claude-3-5-sonnet-20241022',
+        model: options?.model || DEFAULT_VISION_MODEL,
         max_tokens: 512,
         messages: [
           {
             role: 'user',
             content: [
               {
-                type: 'image',
+                type: 'input_image' as any,
                 source: { type: 'base64', media_type: 'image/png', data: imageBase64 }
               },
               {
@@ -403,8 +411,10 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
 
       const textBlocks = response.content.filter((block: any) => block.type === 'text');
       for (const block of textBlocks) {
+        if (block.type !== 'text') continue;
+
         try {
-          const parsed = JSON.parse(block.text);
+          const parsed = this.parseJsonObject(block.text);
           if (Array.isArray(parsed?.tables)) {
             return parsed.tables.map((tbl: any, idx: number) => ({
               table_number: idx + 1,
@@ -412,7 +422,7 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
               page: pageNumber,
               headers: tbl.headers || [],
               rows: (tbl.rows || []).map((row: any[]) =>
-                row.map(cell => `${cell} (p.${pageNumber})`)
+                row.map(cell => `${cell ?? ''} (p.${pageNumber})`)
               ),
               caption: tbl.caption,
               extracted_type: 'vision' as const
@@ -432,6 +442,8 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
   private async classifyFigureWithVision(
     imageBase64: string,
     pageNumber: number,
+    width: number,
+    height: number,
     options?: ExtractionOptions
   ): Promise<FigureData | undefined> {
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -441,14 +453,14 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
     try {
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       const response = await client.messages.create({
-        model: options?.model || 'claude-3-5-sonnet-20241022',
+        model: options?.model || DEFAULT_VISION_MODEL,
         max_tokens: 512,
         messages: [
           {
             role: 'user',
             content: [
               {
-                type: 'image',
+                type: 'input_image' as any,
                 source: { type: 'base64', media_type: 'image/png', data: imageBase64 }
               },
               {
@@ -462,9 +474,26 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
 
       const textBlocks = response.content.filter((block: any) => block.type === 'text');
       for (const block of textBlocks) {
+        if (block.type !== 'text') continue;
+
         try {
-          const parsed = JSON.parse(block.text);
+          const parsed = this.parseJsonObject(block.text);
           const figureType = this.mapFigureDescriptorToType(parsed.chart_type);
+          const dataPoints = Array.isArray(parsed.data_points)
+            ? parsed.data_points
+              .map((p: any) => {
+                const x = Number(p.x);
+                const y = Number(p.y);
+
+                return Number.isFinite(x) && Number.isFinite(y)
+                  ? { x, y, label: p.label }
+                  : null;
+              })
+              .filter(
+                (p: { x: number; y: number; label?: string } | null): p is { x: number; y: number; label?: string } =>
+                  p !== null
+              )
+            : undefined;
 
           return {
             figure_number: parsed.figure_number || 1,
@@ -472,10 +501,13 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
             page: pageNumber,
             type: figureType,
             caption: parsed.caption,
-            highlights: this.normalizeHighlights(parsed.highlights || parsed.bounding_boxes || parsed.boundingBoxes, pageNumber),
-            data_points: Array.isArray(parsed.data_points)
-              ? parsed.data_points.map((p: any) => ({ x: Number(p.x), y: Number(p.y), label: p.label }))
-              : undefined
+            highlights: this.normalizeHighlights(
+              parsed.highlights || parsed.bounding_boxes || parsed.boundingBoxes,
+              pageNumber,
+              width,
+              height
+            ),
+            data_points: dataPoints
           };
         } catch (error) {
           this.log(`Failed to parse vision figure JSON: ${error}`, options?.verbose);
@@ -500,38 +532,47 @@ export class TableFigureExtractor extends BaseModule<TableFigureInput, TableExtr
     return 'other';
   }
 
-  private syntheticCurveData(): DataPoint[] {
-    return [
-      { x: 0, y: 1 },
-      { x: 30, y: 0.92 },
-      { x: 60, y: 0.85 },
-      { x: 90, y: 0.8 }
-    ];
+  private parseJsonObject(text: string): any {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    return JSON.parse(jsonMatch ? jsonMatch[0] : text);
   }
 
   private normalizeHighlights(
     candidate: any,
-    page: number
-  ): BoundingBox[] | undefined {
-    if (!candidate) return this.defaultHighlight(page);
+    page: number,
+    width: number,
+    height: number
+  ): FigureBoundingBox[] {
+    if (!candidate) return this.defaultHighlight(page, width, height);
 
     try {
-      const boxes: BoundingBox[] = (candidate as any[]).map((box: any) => ({
-        left: Number(box.left ?? box[0] ?? 0),
-        top: Number(box.top ?? box[1] ?? 0),
-        right: Number(box.right ?? box[2] ?? 612),
-        bottom: Number(box.bottom ?? box[3] ?? 792),
-        page: Number(box.page ?? page)
-      }));
+      const candidateArray = Array.isArray(candidate) ? candidate : [candidate];
+      const boxes = candidateArray.flatMap((box: any): FigureBoundingBox[] => {
+        if (!box || Array.isArray(box)) return [];
 
-      return boxes.length ? boxes : this.defaultHighlight(page);
+        const left = this.clamp(Number(box.left), 0, width);
+        const top = this.clamp(Number(box.top), 0, height);
+        const right = this.clamp(Number(box.right), 0, width);
+        const bottom = this.clamp(Number(box.bottom), 0, height);
+        const boxPage = Number(box.page ?? page);
+
+        return Number.isFinite(boxPage) && left < right && top < bottom
+          ? [{ left, top, right, bottom, page: boxPage }]
+          : [];
+      });
+
+      return boxes.length ? boxes : this.defaultHighlight(page, width, height);
     } catch (error) {
       this.log(`Failed to normalize highlights: ${error}`, false);
-      return this.defaultHighlight(page);
+      return this.defaultHighlight(page, width, height);
     }
   }
 
-  private defaultHighlight(page: number): BoundingBox[] {
-    return [{ left: 0, top: 0, right: 612, bottom: 792, page }];
+  private clamp(value: number, minimum: number, maximum: number): number {
+    return Number.isFinite(value) ? Math.min(Math.max(value, minimum), maximum) : minimum;
+  }
+
+  private defaultHighlight(page: number, width: number, height: number): FigureBoundingBox[] {
+    return [{ left: 0, top: 0, right: width, bottom: height, page }];
   }
 }
